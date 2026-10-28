@@ -1,0 +1,245 @@
+{
+  "skills": {
+    "analyze": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\analyze"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\analyze"
+    },
+    "automation-strategy": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\automation-strategy"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\automation-strategy"
+    },
+    "clarify": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\clarify"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\clarify"
+    },
+    "constitution": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\constitution"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\constitution"
+    },
+    "debug": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\debug"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\debug"
+    },
+    "decision-challenge": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\decision-challenge"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\decision-challenge"
+    },
+    "deprecation": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\deprecation"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\deprecation"
+    },
+    "fable-operator": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\fable-operator"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\fable-operator"
+    },
+    "ftd": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\ftd"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\ftd"
+    },
+    "harness": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\harness"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\harness"
+    },
+    "idea-refinement": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\idea-refinement"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\idea-refinement"
+    },
+    "implement": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\implement"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\implement"
+    },
+    "init": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\init"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\init"
+    },
+    "orient": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\orient"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\orient"
+    },
+    "parallel": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\parallel"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\parallel"
+    },
+    "plan": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\plan"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\plan"
+    },
+    "python": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\python"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\python"
+    },
+    "review": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\review"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\review"
+    },
+    "sdd": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\sdd"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\sdd"
+    },
+    "sdd-init": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\sdd-init"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\sdd-init"
+    },
+    "ship": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\ship"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\ship"
+    },
+    "simplify-code": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\simplify-code"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\simplify-code"
+    },
+    "source-grounded-development": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\source-grounded-development"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\source-grounded-development"
+    },
+    "specify": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\specify"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\specify"
+    },
+    "suggest": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\suggest"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\suggest"
+    },
+    "tasks": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\tasks"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\tasks"
+    },
+    "ui-engineering": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\ui-engineering"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\ui-engineering"
+    },
+    "unslop": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\unslop"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\unslop"
+    },
+    "verify": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\verify"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\verify"
+    },
+    "worktrees": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\rsc\\worktrees"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\worktrees"
+    }
+  },
+  "agents": [
+    "developer",
+    "python-reviewer",
+    "refuter-correctness",
+    "refuter-security",
+    "refuter-tests"
+  ],
+  "agentCollisions": [],
+  "explicitAgents": [],
+  "memory": {
+    "mode": "full",
+    "reason": "wired",
+    "paths": [
+      "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\session-memory-core.mjs",
+      "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\session-memory-adapter.mjs",
+      "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\session-memory.mjs",
+      "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\settings.json"
+    ]
+  },
+  "update": {
+    "mode": "hook"
+  },
+  "knowledge": {
+    "mode": "wired",
+    "reason": null,
+    "paths": [
+      "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\knowledge-sync.mjs",
+      "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\trunk-policy.mjs",
+      "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.gemini\\settings.json"
+    ]
+  },
+  "policy": {
+    "baseAgents": true,
+    "alwaysOn": true,
+    "codeHooks": true,
+    "dangerGuard": false,
+    "gitmojiGuard": false,
+    "memory": true,
+    "context7": false
+  },
+  "commands": [
+    "analyze",
+    "checkpoint",
+    "clarify",
+    "debug",
+    "harness-audit",
+    "implement",
+    "learn",
+    "plan",
+    "python-review",
+    "refactor-clean",
+    "resume-session",
+    "review",
+    "save-session",
+    "ship",
+    "specify",
+    "tasks",
+    "verify"
+  ],
+  "commandCollisions": [],
+  "version": "3.0.1"
+}

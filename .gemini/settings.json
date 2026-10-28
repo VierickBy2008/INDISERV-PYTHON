@@ -1,0 +1,118 @@
+{
+  "hooks": {
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/session-memory-adapter.mjs\" gemini turn",
+            "timeout": 5000,
+            "name": "rsc-memory-turn"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/knowledge-sync.mjs\" hook gemini turn",
+            "timeout": 10000,
+            "name": "rsc-knowledge-turn"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "write_file|replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/session-memory-adapter.mjs\" gemini edit",
+            "timeout": 5000,
+            "name": "rsc-memory-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/session-memory-adapter.mjs\" gemini boundary",
+            "timeout": 5000,
+            "name": "rsc-memory-boundary"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/session-memory-adapter.mjs\" gemini request",
+            "timeout": 5000,
+            "name": "rsc-memory-request"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/knowledge-sync.mjs\" hook gemini request",
+            "timeout": 10000,
+            "name": "rsc-knowledge-request"
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/session-memory-adapter.mjs\" gemini compact",
+            "timeout": 5000,
+            "name": "rsc-memory-compact"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/session-memory-adapter.mjs\" gemini end",
+            "timeout": 5000,
+            "name": "rsc-memory-end"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/session-memory-adapter.mjs\" gemini start",
+            "timeout": 5000,
+            "name": "rsc-memory-start"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \".rsc/auto-update.mjs\" hook gemini",
+            "timeout": 10000,
+            "name": "rsc-update"
+          }
+        ]
+      }
+    ]
+  }
+}

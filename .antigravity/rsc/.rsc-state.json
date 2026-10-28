@@ -1,0 +1,212 @@
+{
+  "skills": {
+    "analyze": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\analyze"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\analyze"
+    },
+    "automation-strategy": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\automation-strategy"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\automation-strategy"
+    },
+    "clarify": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\clarify"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\clarify"
+    },
+    "constitution": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\constitution"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\constitution"
+    },
+    "debug": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\debug"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\debug"
+    },
+    "decision-challenge": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\decision-challenge"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\decision-challenge"
+    },
+    "deprecation": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\deprecation"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\deprecation"
+    },
+    "fable-operator": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\fable-operator"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\fable-operator"
+    },
+    "ftd": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\ftd"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\ftd"
+    },
+    "harness": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\harness"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\harness"
+    },
+    "idea-refinement": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\idea-refinement"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\idea-refinement"
+    },
+    "implement": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\implement"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\implement"
+    },
+    "init": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\init"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\init"
+    },
+    "orient": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\orient"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\orient"
+    },
+    "parallel": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\parallel"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\parallel"
+    },
+    "plan": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\plan"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\plan"
+    },
+    "python": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\python"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\python"
+    },
+    "review": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\review"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\review"
+    },
+    "sdd": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\sdd"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\sdd"
+    },
+    "sdd-init": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\sdd-init"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\sdd-init"
+    },
+    "ship": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\ship"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\ship"
+    },
+    "simplify-code": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\simplify-code"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\simplify-code"
+    },
+    "source-grounded-development": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\source-grounded-development"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\source-grounded-development"
+    },
+    "specify": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\specify"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\specify"
+    },
+    "suggest": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\suggest"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\suggest"
+    },
+    "tasks": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\tasks"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\tasks"
+    },
+    "ui-engineering": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\ui-engineering"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\ui-engineering"
+    },
+    "unslop": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\unslop"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\unslop"
+    },
+    "verify": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\verify"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\verify"
+    },
+    "worktrees": {
+      "files": [
+        "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.antigravity\\rsc\\worktrees"
+      ],
+      "base": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python\\.rsc\\skills\\worktrees"
+    }
+  },
+  "agents": [],
+  "agentCollisions": [],
+  "explicitAgents": [],
+  "memory": {
+    "mode": "unsupported",
+    "reason": "no-local-lifecycle",
+    "paths": []
+  },
+  "update": {
+    "mode": "agent"
+  },
+  "knowledge": {
+    "mode": "unsupported",
+    "reason": null,
+    "paths": []
+  },
+  "policy": {
+    "baseAgents": true,
+    "alwaysOn": true,
+    "codeHooks": true,
+    "dangerGuard": false,
+    "gitmojiGuard": false,
+    "memory": true,
+    "context7": false
+  },
+  "commands": [],
+  "commandCollisions": [],
+  "version": "3.0.1"
+}

@@ -1,0 +1,430 @@
+{
+  "schemaVersion": 1,
+  "id": "20261004-152543-onboard-codex",
+  "createdAt": "2026-10-04T15:25:43.332Z",
+  "operation": "onboard",
+  "target": "codex",
+  "cwd": "C:\\Users\\Sebastian\\Desktop\\IndiServ_Python",
+  "cliVersion": "3.0.1",
+  "entries": [
+    {
+      "path": ".codex/rsc/.rsc-state.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/.version",
+      "existed": true,
+      "kind": "file",
+      "contentPath": "files\\.rsc\\.version"
+    },
+    {
+      "path": ".rsc/.base-versions.json",
+      "existed": true,
+      "kind": "file",
+      "contentPath": "files\\.rsc\\.base-versions.json"
+    },
+    {
+      "path": ".rsc/.no-context7",
+      "existed": true,
+      "kind": "file",
+      "contentPath": "files\\.rsc\\.no-context7"
+    },
+    {
+      "path": ".rsc/session-memory-core.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/session-memory-adapter.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/session-memory.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/hooks.json",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/auto-update.mjs",
+      "existed": true,
+      "kind": "file",
+      "contentPath": "files\\.rsc\\auto-update.mjs"
+    },
+    {
+      "path": ".rsc/knowledge-sync.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/trunk-policy.mjs",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/developer.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/python-reviewer.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/refuter-correctness.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/refuter-security.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/agents/refuter-tests.toml",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".codex/rsc/analyze",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/analyze",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\analyze"
+    },
+    {
+      "path": ".codex/rsc/automation-strategy",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/automation-strategy",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\automation-strategy"
+    },
+    {
+      "path": ".codex/rsc/clarify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/clarify",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\clarify"
+    },
+    {
+      "path": ".codex/rsc/constitution",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/constitution",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\constitution"
+    },
+    {
+      "path": ".codex/rsc/debug",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/debug",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\debug"
+    },
+    {
+      "path": ".codex/rsc/decision-challenge",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/decision-challenge",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\decision-challenge"
+    },
+    {
+      "path": ".codex/rsc/deprecation",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/deprecation",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\deprecation"
+    },
+    {
+      "path": ".codex/rsc/fable-operator",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/fable-operator",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\fable-operator"
+    },
+    {
+      "path": ".codex/rsc/ftd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/ftd",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\ftd"
+    },
+    {
+      "path": ".codex/rsc/harness",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/harness",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\harness"
+    },
+    {
+      "path": ".codex/rsc/idea-refinement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/idea-refinement",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\idea-refinement"
+    },
+    {
+      "path": ".codex/rsc/implement",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/implement",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\implement"
+    },
+    {
+      "path": ".codex/rsc/init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/init",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\init"
+    },
+    {
+      "path": ".codex/rsc/orient",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/orient",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\orient"
+    },
+    {
+      "path": ".codex/rsc/parallel",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/parallel",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\parallel"
+    },
+    {
+      "path": ".codex/rsc/plan",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/plan",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\plan"
+    },
+    {
+      "path": ".codex/rsc/python",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/python",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\python"
+    },
+    {
+      "path": ".codex/rsc/review",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/review",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\review"
+    },
+    {
+      "path": ".codex/rsc/sdd",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/sdd",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\sdd"
+    },
+    {
+      "path": ".codex/rsc/sdd-init",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/sdd-init",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\sdd-init"
+    },
+    {
+      "path": ".codex/rsc/ship",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/ship",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\ship"
+    },
+    {
+      "path": ".codex/rsc/simplify-code",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/simplify-code",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\simplify-code"
+    },
+    {
+      "path": ".codex/rsc/source-grounded-development",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/source-grounded-development",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\source-grounded-development"
+    },
+    {
+      "path": ".codex/rsc/specify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/specify",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\specify"
+    },
+    {
+      "path": ".codex/rsc/suggest",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/suggest",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\suggest"
+    },
+    {
+      "path": ".codex/rsc/tasks",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/tasks",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\tasks"
+    },
+    {
+      "path": ".codex/rsc/ui-engineering",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/ui-engineering",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\ui-engineering"
+    },
+    {
+      "path": ".codex/rsc/unslop",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/unslop",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\unslop"
+    },
+    {
+      "path": ".codex/rsc/verify",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/verify",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\verify"
+    },
+    {
+      "path": ".codex/rsc/worktrees",
+      "existed": false,
+      "kind": "missing"
+    },
+    {
+      "path": ".rsc/skills/worktrees",
+      "existed": true,
+      "kind": "dir",
+      "contentPath": "files\\.rsc\\skills\\worktrees"
+    },
+    {
+      "path": "AGENTS.md",
+      "existed": false,
+      "kind": "missing"
+    }
+  ]
+}

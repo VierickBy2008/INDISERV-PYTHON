@@ -1,0 +1,100 @@
+{
+    "ticket_id": "6130-TICKET-6307",
+    "operador_dni": "61303860",
+    "telemetria": {
+        "mb_fabricante": "LENOVO",
+        "mb_modelo": "LNVNB161216",
+        "bios_fabricante": "LENOVO",
+        "bios_version": "SUCN16WW",
+        "bios_fecha": "11/11/2025",
+        "nombre_cpu": "AMD Ryzen 7 7735HS with Radeon Graphics",
+        "nucleos_fisicos": 8,
+        "nucleos": 16,
+        "frecuencia_base_ghz": 3.2,
+        "frecuencia_actual_ghz": 2.56,
+        "uso_por_nucleo": [
+            22.9,
+            21.9,
+            18.8,
+            32.3,
+            6.2,
+            3.1,
+            9.4,
+            6.2,
+            0.0,
+            0.0,
+            3.1,
+            6.2,
+            9.1,
+            3.1,
+            0.0,
+            0.0
+        ],
+        "uso_cpu_total": 8.9,
+        "alerta_cpu": false,
+        "ram_total_mb": "15556 MB",
+        "ram_disponible_mb": "860 MB",
+        "alerta_ram": false,
+        "ram_total_mb_int": 15556,
+        "ram_libre_mb_int": 860,
+        "ram_uso_pct": 94.5,
+        "ram_tipo": "DDR5",
+        "ram_velocidad_mhz": 5600,
+        "ram_ranuras_ocupadas": 1,
+        "ram_modulos": [
+            {
+                "ranura": "DIMM 0",
+                "banco": "P0 CHANNEL A",
+                "capacidad_gb": 16.0,
+                "velocidad_mhz": 5600,
+                "tipo": "DDR5"
+            }
+        ],
+        "gpu_principal": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+        "gpus": [
+            {
+                "nombre": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+                "procesador": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+                "vram_mb": 4095.0,
+                "driver_version": "32.0.16.1742"
+            },
+            {
+                "nombre": "AMD Radeon(TM) 680M",
+                "procesador": "AMD Radeon Graphics Processor (0x1681)",
+                "vram_mb": 512.0,
+                "driver_version": "32.0.21030.14003"
+            }
+        ],
+        "discos_fisicos": [
+            {
+                "modelo": "Micron MTFDKCD512QGN-1BN1AABLA",
+                "tipo": "HDD",
+                "interfaz": "SCSI",
+                "capacidad_gb": 476.9
+            }
+        ],
+        "particiones": [
+            {
+                "letra": "C:\\",
+                "fs": "NTFS",
+                "total_gb": 475.8,
+                "usado_gb": 300.4,
+                "libre_gb": 175.4,
+                "uso_pct": 63.1
+            }
+        ],
+        "so": "Windows 11",
+        "so_build": "10.0.26300",
+        "uptime": "38h 52m",
+        "adaptador_activo": "Wi-Fi",
+        "ip_local": "192.168.1.57",
+        "latencia_ms": "45 ms"
+    },
+    "diagnostico": {
+        "categoria": "Placa Base",
+        "subcategoria": "Falla de sensor",
+        "descripcion": "Sensor reporta falso calor en BIOS.",
+        "solucion": "1. Actualice la BIOS.\n2. Verifique la telemetría térmica.",
+        "codigo": 303
+    }
+}

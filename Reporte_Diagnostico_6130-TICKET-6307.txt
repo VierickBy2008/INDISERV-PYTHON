@@ -1,0 +1,25 @@
+================================================================
+          REPORTE TÉCNICO DE DIAGNÓSTICO DE PC                  
+================================================================
+TICKET ID: 6130-TICKET-6307
+OPERADOR DNI: 61303860
+----------------------------------------------------------------
+CPU: AMD Ryzen 7 7735HS with Radeon Graphics
+Núcleos: 8 físicos / 16 lógicos
+Frecuencia: Base 3.2 GHz | Actual 2.56 GHz
+RAM Total: 15556 MB | Tipo: DDR5 @ 5600 MHz
+GPU: NVIDIA GeForce RTX 3050 6GB Laptop GPU
+Placa Base: LENOVO LNVNB161216
+BIOS: vSUCN16WW [11/11/2025]
+Sistema Operativo: Windows 11 (Build 10.0.26300)
+Uptime: 38h 52m
+----------------------------------------------------------------
+Categoría: Placa Base
+Subcategoría: Falla de sensor
+Falla detectada: Sensor reporta falso calor en BIOS.
+
+GUÍA DE SOLUCIÓN:
+1. Actualice la BIOS.
+2. Verifique la telemetría térmica.
+Código Interno: #303
+================================================================

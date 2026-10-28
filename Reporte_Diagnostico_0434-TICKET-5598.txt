@@ -1,0 +1,25 @@
+================================================================
+          REPORTE TÉCNICO DE DIAGNÓSTICO DE PC                  
+================================================================
+TICKET ID: 0434-TICKET-5598
+OPERADOR DNI: 04341277
+----------------------------------------------------------------
+CPU: AMD Ryzen 7 5700X 8-Core Processor
+Núcleos: 8 físicos / 16 lógicos
+Frecuencia: Base 3.4 GHz | Actual 3.4 GHz
+RAM Total: 32669 MB | Tipo: DDR4 @ 2666 MHz
+GPU: NVIDIA GeForce RTX 5060 Ti
+Placa Base: ASUSTeK COMPUTER INC. ROG STRIX B550-F GAMING (WI-FI)
+BIOS: v3621 [13/01/2025]
+Sistema Operativo: Windows 11 (Build 10.0.26300)
+Uptime: 2h 13m
+----------------------------------------------------------------
+Categoría: Placa Base
+Subcategoría: Falla de POST
+Falla detectada: Fuente operativa pero placa base inactiva.
+
+GUÍA DE SOLUCIÓN:
+1. Realice Clear CMOS (retire pila 30 segundos).
+2. Pruebe encender solo con CPU, 1 RAM y PSU.
+Código Interno: #106
+================================================================

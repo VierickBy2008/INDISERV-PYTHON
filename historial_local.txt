@@ -1,0 +1,5 @@
+[0434-TICKET-5598] Placa Base - Falla de POST (Código #106)
+[0434-TICKET-2320] Hardware - Falla Pre-POST (Código #401)
+[7550-TICKET-9415] Video - Sin señal (Código #204)
+[7550-TICKET-5230] RAM - Inestabilidad XMP/EXPO (Código #702)
+[6130-TICKET-6307] Placa Base - Falla de sensor (Código #303)

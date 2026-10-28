@@ -1,0 +1,115 @@
+{
+    "ticket_id": "0434-TICKET-5598",
+    "operador_dni": "04341277",
+    "telemetria": {
+        "mb_fabricante": "ASUSTeK COMPUTER INC.",
+        "mb_modelo": "ROG STRIX B550-F GAMING (WI-FI)",
+        "bios_fabricante": "American Megatrends Inc.",
+        "bios_version": "3621",
+        "bios_fecha": "13/01/2025",
+        "nombre_cpu": "AMD Ryzen 7 5700X 8-Core Processor",
+        "nucleos_fisicos": 8,
+        "nucleos": 16,
+        "frecuencia_base_ghz": 3.4,
+        "frecuencia_actual_ghz": 3.4,
+        "uso_por_nucleo": [
+            0.0,
+            0.0,
+            68.8,
+            21.9,
+            12.5,
+            30.3,
+            0.0,
+            0.0,
+            6.9,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+        ],
+        "uso_cpu_total": 8.8,
+        "alerta_cpu": false,
+        "ram_total_mb": "32669 MB",
+        "ram_disponible_mb": "18035 MB",
+        "alerta_ram": false,
+        "ram_total_mb_int": 32669,
+        "ram_libre_mb_int": 18035,
+        "ram_uso_pct": 44.8,
+        "ram_tipo": "DDR4",
+        "ram_velocidad_mhz": 2666,
+        "ram_ranuras_ocupadas": 2,
+        "ram_modulos": [
+            {
+                "ranura": "DIMM_A2",
+                "banco": "BANK 1",
+                "capacidad_gb": 16.0,
+                "velocidad_mhz": 2666,
+                "tipo": "DDR4"
+            },
+            {
+                "ranura": "DIMM_B2",
+                "banco": "BANK 3",
+                "capacidad_gb": 16.0,
+                "velocidad_mhz": 2666,
+                "tipo": "DDR4"
+            }
+        ],
+        "gpu_principal": "NVIDIA GeForce RTX 5060 Ti",
+        "gpus": [
+            {
+                "nombre": "NVIDIA GeForce RTX 5060 Ti",
+                "procesador": "NVIDIA GeForce RTX 5060 Ti",
+                "vram_mb": 4095.0,
+                "driver_version": "32.0.16.1714"
+            }
+        ],
+        "discos_fisicos": [
+            {
+                "modelo": "Patriot M.2 P310 240GB",
+                "tipo": "HDD",
+                "interfaz": "SCSI",
+                "capacidad_gb": 223.6
+            },
+            {
+                "modelo": "WDC WD10SPZX-24Z10",
+                "tipo": "HDD",
+                "interfaz": "IDE",
+                "capacidad_gb": 931.5
+            }
+        ],
+        "particiones": [
+            {
+                "letra": "C:\\",
+                "fs": "NTFS",
+                "total_gb": 222.2,
+                "usado_gb": 201.1,
+                "libre_gb": 21.1,
+                "uso_pct": 90.5
+            },
+            {
+                "letra": "D:\\",
+                "fs": "NTFS",
+                "total_gb": 931.5,
+                "usado_gb": 702.2,
+                "libre_gb": 229.3,
+                "uso_pct": 75.4
+            }
+        ],
+        "so": "Windows 11",
+        "so_build": "10.0.26300",
+        "uptime": "2h 13m",
+        "adaptador_activo": "Ethernet 2",
+        "ip_local": "192.168.31.160",
+        "latencia_ms": "32 ms"
+    },
+    "diagnostico": {
+        "categoria": "Placa Base",
+        "subcategoria": "Falla de POST",
+        "descripcion": "Fuente operativa pero placa base inactiva.",
+        "solucion": "1. Realice Clear CMOS (retire pila 30 segundos).\n2. Pruebe encender solo con CPU, 1 RAM y PSU.",
+        "codigo": 106
+    }
+}

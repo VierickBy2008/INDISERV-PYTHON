@@ -1,0 +1,25 @@
+================================================================
+          REPORTE TÉCNICO DE DIAGNÓSTICO DE PC                  
+================================================================
+TICKET ID: 0434-TICKET-2320
+OPERADOR DNI: 04341277
+----------------------------------------------------------------
+CPU: AMD Ryzen 7 5700X 8-Core Processor
+Núcleos: 8 físicos / 16 lógicos
+Frecuencia: Base 3.4 GHz | Actual 3.4 GHz
+RAM Total: 32669 MB | Tipo: DDR4 @ 2666 MHz
+GPU: NVIDIA GeForce RTX 5060 Ti
+Placa Base: ASUSTeK COMPUTER INC. ROG STRIX B550-F GAMING (WI-FI)
+BIOS: v3621 [13/01/2025]
+Sistema Operativo: Windows 11 (Build 10.0.26300)
+Uptime: 2h 20m
+----------------------------------------------------------------
+Categoría: Hardware
+Subcategoría: Falla Pre-POST
+Falla detectada: Inestabilidad eléctrica o de RAM grave.
+
+GUÍA DE SOLUCIÓN:
+1. Realice un Clear CMOS.
+2. Pruebe con un solo módulo de RAM.
+Código Interno: #401
+================================================================
