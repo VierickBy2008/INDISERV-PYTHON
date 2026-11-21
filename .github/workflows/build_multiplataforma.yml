@@ -49,6 +49,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
+          python -c "import customtkinter, PIL, psutil, supabase, dotenv; print('DEPS_OK')"
 
       - name: Compilar ejecutable autónomo con PyInstaller
         run: python build_executable.py
