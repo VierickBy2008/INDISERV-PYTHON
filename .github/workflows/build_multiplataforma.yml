@@ -22,7 +22,7 @@ jobs:
             artifact_name: IndiServ_Analytica-Windows
             artifact_path: dist/IndiServ_Analytica.exe
           - os_name: Linux
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             artifact_name: IndiServ_Analytica-Linux
             artifact_path: dist/IndiServ_Analytica-Linux
           - os_name: macOS
