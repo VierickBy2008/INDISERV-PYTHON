@@ -6,6 +6,9 @@ on:
     tags: [ 'v*' ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Compilar ${{ matrix.os_name }}
@@ -62,3 +65,29 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+
+  release:
+    name: Publicar GitHub Release Público
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar ejecutables compilados
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publicar o actualizar Release en GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
+          name: IndiServ Analytica — Descargas Multiplataforma
+          body: |
+            Descargas directas de **IndiServ Analytica** (sin necesidad de instalar Python ni librerías):
+            - **Windows**: `IndiServ_Analytica.exe`
+            - **Linux**: `IndiServ_Analytica-Linux` (`chmod +x IndiServ_Analytica-Linux && ./IndiServ_Analytica-Linux`)
+            - **macOS**: `IndiServ_Analytica-macOS.zip` (descomprimir y abrir `IndiServ_Analytica-macOS.app`)
+          make_latest: true
+          files: |
+            artifacts/IndiServ_Analytica-Windows/IndiServ_Analytica.exe
+            artifacts/IndiServ_Analytica-Linux/IndiServ_Analytica-Linux
+            artifacts/IndiServ_Analytica-macOS/IndiServ_Analytica-macOS.zip
