@@ -1,0 +1,64 @@
+name: Build Multiplataforma (Windows, Linux, macOS)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Compilar ${{ matrix.os_name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os_name: Windows
+            runner: windows-latest
+            artifact_name: IndiServ_Analytica-Windows
+            artifact_path: dist/IndiServ_Analytica.exe
+          - os_name: Linux
+            runner: ubuntu-latest
+            artifact_name: IndiServ_Analytica-Linux
+            artifact_path: dist/IndiServ_Analytica-Linux
+          - os_name: macOS
+            runner: macos-latest
+            artifact_name: IndiServ_Analytica-macOS
+            artifact_path: dist/IndiServ_Analytica-macOS.zip
+
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias de sistema en Linux (Tkinter / X11)
+        if: matrix.os_name == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk python3-dev libx11-6 libxcb1
+
+      - name: Instalar librerías de Python y PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Compilar ejecutable autónomo con PyInstaller
+        run: python build_executable.py
+
+      - name: Empaquetar .app y binario en macOS
+        if: matrix.os_name == 'macOS'
+        run: |
+          cd dist
+          zip -r IndiServ_Analytica-macOS.zip IndiServ_Analytica-macOS.app IndiServ_Analytica-macOS
+
+      - name: Subir ejecutable descargable (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error

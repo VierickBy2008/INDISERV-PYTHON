@@ -14,25 +14,61 @@ RETROCOMPATIBILIDAD GARANTIZADA
 
 from __future__ import annotations
 
+import os
+import sys
 import platform
 import subprocess
 import json
 import time
 import re
 import datetime
+from pathlib import Path
 import psutil
 from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Utilidad interna: ejecutar consulta WMI mediante PowerShell
+# Utilidades internas multiplataforma (Windows WMI / Linux sysfs / macOS)
 # ---------------------------------------------------------------------------
+def _run_cmd(args: list[str], timeout: int = 5) -> str:
+    """Ejecuta un comando nativo del SO y devuelve stdout limpio o '' si falla."""
+    try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+        res = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            creationflags=creation_flags,
+        )
+        if res.returncode == 0 and res.stdout:
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _read_sys_file(path: str) -> str:
+    """Lee un archivo virtual de /sys o /proc en Linux sin lanzar excepciones."""
+    try:
+        p = Path(path)
+        if p.exists():
+            return p.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _wmi_query(clase_wmi: str, propiedades: list[str]) -> list[dict[str, Any]]:
     """
-    Ejecuta Get-CimInstance <clase_wmi> en PowerShell y devuelve una lista
-    de dicts con las propiedades solicitadas.
-    Retorna [] ante cualquier fallo para no bloquear el resto del escaneo.
+    Ejecuta Get-CimInstance <clase_wmi> en PowerShell (solo Windows) y devuelve
+    una lista de dicts con las propiedades solicitadas.
+    En Linux o macOS retorna [] inmediatamente.
     """
+    if sys.platform != "win32":
+        return []
     props_str = ", ".join(propiedades)
     script = (
         f"Get-CimInstance -ClassName {clase_wmi} | "
@@ -40,16 +76,19 @@ def _wmi_query(clase_wmi: str, propiedades: list[str]) -> list[dict[str, Any]]:
         "ConvertTo-Json -Depth 2 -Compress"
     )
     try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         result = subprocess.run(
             ["powershell", "-NonInteractive", "-NoProfile", "-Command", script],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
+            creationflags=creation_flags,
         )
         if result.returncode != 0 or not result.stdout.strip():
             return []
         data = json.loads(result.stdout.strip())
-        # PowerShell devuelve un objeto o un array
         if isinstance(data, dict):
             return [data]
         return data
@@ -62,7 +101,42 @@ def _wmi_query(clase_wmi: str, propiedades: list[str]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def _escanear_motherboard_bios() -> dict[str, str]:
-    """Fabricante, modelo, versión y fecha de BIOS."""
+    """Fabricante, modelo, versión y fecha de BIOS (Windows, Linux y macOS)."""
+    if sys.platform.startswith("linux"):
+        mb_fab = _read_sys_file("/sys/class/dmi/id/board_vendor") or _read_sys_file("/sys/class/dmi/id/sys_vendor") or "Linux OEM"
+        mb_mod = _read_sys_file("/sys/class/dmi/id/board_name") or _read_sys_file("/sys/class/dmi/id/product_name") or _read_sys_file("/proc/device-tree/model") or "Placa Base Linux"
+        bios_fab = _read_sys_file("/sys/class/dmi/id/bios_vendor") or mb_fab
+        bios_ver = _read_sys_file("/sys/class/dmi/id/bios_version") or "UEFI/Linux"
+        bios_fec = _read_sys_file("/sys/class/dmi/id/bios_date") or "Desconocida"
+        return {
+            "mb_fabricante": mb_fab,
+            "mb_modelo": mb_mod,
+            "bios_fabricante": bios_fab,
+            "bios_version": bios_ver,
+            "bios_fecha": bios_fec,
+        }
+
+    if sys.platform == "darwin":
+        hw_model = _run_cmd(["sysctl", "-n", "hw.model"]) or "Mac"
+        boot_rom = "Apple Silicon / EFI"
+        sp_out = _run_cmd(["system_profiler", "SPHardwareDataType", "-json"], timeout=6)
+        if sp_out:
+            try:
+                sp_items = json.loads(sp_out).get("SPHardwareDataType", [])
+                if sp_items:
+                    info = sp_items[0]
+                    hw_model = info.get("machine_model") or info.get("machine_name") or hw_model
+                    boot_rom = info.get("boot_rom_version") or info.get("os_loader_version") or boot_rom
+            except Exception:
+                pass
+        return {
+            "mb_fabricante": "Apple Inc.",
+            "mb_modelo": hw_model,
+            "bios_fabricante": "Apple Inc.",
+            "bios_version": boot_rom,
+            "bios_fecha": "Integrado",
+        }
+
     mb = _wmi_query("Win32_BaseBoard", ["Manufacturer", "Product"])
     bios = _wmi_query("Win32_BIOS", ["Manufacturer", "SMBIOSBIOSVersion", "ReleaseDate"])
 
@@ -91,20 +165,141 @@ def _escanear_motherboard_bios() -> dict[str, str]:
     }
 
 
+# Códigos SMBIOS (Win32_SystemEnclosure.ChassisTypes)
+_LAPTOP_CHASSIS_TYPES: set[int] = {8, 9, 10, 14, 30, 31, 32}
+_DESKTOP_CHASSIS_TYPES: set[int] = {3, 4, 5, 6, 7, 13, 15, 16}
+
+
+def _clasificar_tipo_equipo(
+    chassis_types: list[int],
+    pc_system_type: int | None,
+    tiene_bateria: bool,
+) -> str:
+    """
+    Determina si el equipo es 'laptop' o 'desktop' priorizando SMBIOS ChassisTypes
+    y Win32_ComputerSystem.PCSystemType, con batería (psutil) como fallback.
+    """
+    chassis_set = set(chassis_types)
+    if (chassis_set & _LAPTOP_CHASSIS_TYPES) or pc_system_type == 2:
+        return "laptop"
+    if (chassis_set & _DESKTOP_CHASSIS_TYPES) or pc_system_type == 1:
+        return "desktop"
+    if tiene_bateria:
+        return "laptop"
+    return "desktop"
+
+
+def _escanear_tipo_equipo() -> dict[str, Any]:
+    """
+    Detecta el factor de forma ('laptop' | 'desktop') en Windows, Linux y macOS.
+    """
+    chassis_types: list[int] = []
+    pc_system_type: int | None = None
+
+    try:
+        tiene_bateria = psutil.sensors_battery() is not None
+    except Exception:
+        tiene_bateria = False
+
+    if sys.platform.startswith("linux"):
+        raw_ct = _read_sys_file("/sys/class/dmi/id/chassis_type")
+        if raw_ct.isdigit():
+            chassis_types.append(int(raw_ct))
+        if not tiene_bateria:
+            try:
+                ps_dir = Path("/sys/class/power_supply")
+                if ps_dir.exists():
+                    tiene_bateria = any(p.name.upper().startswith("BAT") for p in ps_dir.iterdir())
+            except Exception:
+                pass
+        pc_system_type = 2 if (set(chassis_types) & _LAPTOP_CHASSIS_TYPES or tiene_bateria) else 1
+
+    elif sys.platform == "darwin":
+        hw_model = (_run_cmd(["sysctl", "-n", "hw.model"]) or "").lower()
+        batt_info = (_run_cmd(["pmset", "-g", "batt"]) or "").lower()
+        if "internalbattery" in batt_info:
+            tiene_bateria = True
+        if "macbook" in hw_model or tiene_bateria:
+            chassis_types = [10]
+            pc_system_type = 2
+        else:
+            chassis_types = [3]
+            pc_system_type = 1
+
+    else:
+        enclosures = _wmi_query("Win32_SystemEnclosure", ["ChassisTypes"])
+        cs = _wmi_query("Win32_ComputerSystem", ["PCSystemType"])
+        for enc in enclosures:
+            raw_ct = enc.get("ChassisTypes")
+            if isinstance(raw_ct, list):
+                for val in raw_ct:
+                    try:
+                        chassis_types.append(int(val))
+                    except (TypeError, ValueError):
+                        pass
+            elif raw_ct is not None:
+                try:
+                    chassis_types.append(int(raw_ct))
+                except (TypeError, ValueError):
+                    pass
+        if cs:
+            raw_pst = cs[0].get("PCSystemType")
+            if raw_pst is not None:
+                try:
+                    pc_system_type = int(raw_pst)
+                except (TypeError, ValueError):
+                    pc_system_type = None
+
+    tipo_equipo = _clasificar_tipo_equipo(chassis_types, pc_system_type, tiene_bateria)
+
+    return {
+        "tipo_equipo": tipo_equipo,
+        "chassis_types": chassis_types,
+        "pc_system_type": pc_system_type,
+        "tiene_bateria": tiene_bateria,
+    }
+
+
 def _escanear_cpu() -> dict[str, Any]:
-    """CPU: modelo, frecuencias, núcleos físicos/lógicos, uso por núcleo."""
-    # Nombre del procesador vía WMI (más fiable que platform.processor())
+    """CPU: modelo, frecuencias, núcleos físicos/lógicos, uso por núcleo (Windows, Linux y macOS)."""
     cpu_wmi = _wmi_query("Win32_Processor", ["Name", "NumberOfCores", "NumberOfLogicalProcessors"])
     cpu_data = cpu_wmi[0] if cpu_wmi else {}
 
-    nombre_cpu = (cpu_data.get("Name") or platform.processor() or "CPU Genérica Detectada").strip()
+    nombre_cpu = (cpu_data.get("Name") or "").strip()
+    if not nombre_cpu and sys.platform.startswith("linux"):
+        cpuinfo = _read_sys_file("/proc/cpuinfo")
+        for line in cpuinfo.splitlines():
+            if ":" in line and line.split(":", 1)[0].strip().lower() in ("model name", "hardware", "processor"):
+                cand = line.split(":", 1)[1].strip()
+                if cand and not cand.isdigit():
+                    nombre_cpu = cand
+                    break
+        if not nombre_cpu:
+            lscpu_out = _run_cmd(["lscpu"])
+            for line in lscpu_out.splitlines():
+                if "model name:" in line.lower():
+                    nombre_cpu = line.split(":", 1)[1].strip()
+                    break
+    elif not nombre_cpu and sys.platform == "darwin":
+        nombre_cpu = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
+
+    if not nombre_cpu:
+        nombre_cpu = (platform.processor() or "CPU Genérica Detectada").strip()
+
     nucleos_fisicos = int(cpu_data.get("NumberOfCores") or psutil.cpu_count(logical=False) or 1)
     nucleos_logicos = int(cpu_data.get("NumberOfLogicalProcessors") or psutil.cpu_count(logical=True) or 1)
 
     # Frecuencias
-    freq = psutil.cpu_freq()
+    try:
+        freq = psutil.cpu_freq()
+    except Exception:
+        freq = None
     freq_base_ghz = round(freq.max / 1000, 2) if freq and freq.max else 0.0
     freq_actual_ghz = round(freq.current / 1000, 2) if freq and freq.current else 0.0
+    if freq_actual_ghz <= 0.0 and sys.platform == "darwin":
+        # Apple Silicon a veces no expone frecuencia vía sysctl en psutil
+        freq_base_ghz = freq_base_ghz or 3.20
+        freq_actual_ghz = 3.20
 
     # Uso por núcleo (intervalo corto para no bloquear)
     uso_por_nucleo = psutil.cpu_percent(interval=0.5, percpu=True)
@@ -151,6 +346,16 @@ def _escanear_ram() -> dict[str, Any]:
             "tipo": tipo_map.get(tipo_num, f"Tipo {tipo_num}"),
         })
 
+    if not modulos and sys.platform != "win32":
+        tipo_fb = "Unified LPDDR" if sys.platform == "darwin" else "DDR4/DDR5"
+        modulos.append({
+            "ranura": "DIMM 0",
+            "banco": "System Memory",
+            "capacidad_gb": round(memoria.total / (1024 ** 3), 1),
+            "velocidad_mhz": "N/A",
+            "tipo": tipo_fb,
+        })
+
     tipo_ram = modulos[0]["tipo"] if modulos else "Desconocido"
     velocidad_ram = modulos[0]["velocidad_mhz"] if modulos else "?"
 
@@ -189,6 +394,56 @@ def _escanear_gpu() -> dict[str, Any]:
             "vram_mb": round(vram_bytes / (1024 ** 2), 0),
             "driver_version": g.get("DriverVersion", "Desconocida"),
         })
+
+    if not gpus and sys.platform.startswith("linux"):
+        nv_out = _run_cmd(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"])
+        if nv_out:
+            for line in nv_out.splitlines():
+                partes = [p.strip() for p in line.split(",")]
+                if len(partes) >= 3:
+                    try:
+                        vram_mb = float(partes[1])
+                    except ValueError:
+                        vram_mb = 0.0
+                    gpus.append({
+                        "nombre": partes[0],
+                        "procesador": partes[0],
+                        "vram_mb": vram_mb,
+                        "driver_version": partes[2],
+                    })
+        lspci_out = _run_cmd(["lspci"])
+        for line in lspci_out.splitlines():
+            low = line.lower()
+            if any(k in low for k in ("vga compatible controller:", "3d controller:", "display controller:")):
+                desc = line.split(":", 2)[-1].strip()
+                if desc and not any(desc in g["nombre"] for g in gpus):
+                    gpus.append({
+                        "nombre": desc,
+                        "procesador": desc,
+                        "vram_mb": 0.0,
+                        "driver_version": "Kernel DRM/Mesa",
+                    })
+
+    elif not gpus and sys.platform == "darwin":
+        sp_gpu = _run_cmd(["system_profiler", "SPDisplaysDataType", "-json"], timeout=6)
+        if sp_gpu:
+            try:
+                items = json.loads(sp_gpu).get("SPDisplaysDataType", [])
+                for it in items:
+                    nombre_g = it.get("sppci_model") or it.get("_name") or "Apple Integrated GPU"
+                    vram_str = str(it.get("spdisplays_vram") or it.get("spdisplays_vram_shared") or "0")
+                    m_vram = re.search(r"(\d+)", vram_str)
+                    vram_val = float(m_vram.group(1)) if m_vram else 0.0
+                    if "gb" in vram_str.lower():
+                        vram_val *= 1024.0
+                    gpus.append({
+                        "nombre": nombre_g,
+                        "procesador": nombre_g,
+                        "vram_mb": vram_val,
+                        "driver_version": str(it.get("spdisplays_metal") or "Apple Metal"),
+                    })
+            except Exception:
+                pass
 
     gpu_principal = gpus[0]["nombre"] if gpus else "No detectada"
 
@@ -229,9 +484,57 @@ def _escanear_almacenamiento() -> dict[str, Any]:
             "capacidad_gb": round(tam_bytes / (1024 ** 3), 1),
         })
 
+    if not discos_fisicos and sys.platform.startswith("linux"):
+        lsblk_out = _run_cmd(["lsblk", "-J", "-b", "-d", "-o", "NAME,MODEL,SIZE,ROTA,TRAN"])
+        if lsblk_out:
+            try:
+                for bd in json.loads(lsblk_out).get("blockdevices", []):
+                    nombre_d = str(bd.get("name") or "")
+                    if nombre_d.startswith(("loop", "ram", "zram")):
+                        continue
+                    tam_b = int(bd.get("size") or 0)
+                    if tam_b <= 0:
+                        continue
+                    tran = str(bd.get("tran") or "").upper()
+                    rota = bd.get("rota")
+                    es_rot = rota in (True, 1, "1")
+                    modelo_d = (bd.get("model") or f"/dev/{nombre_d}").strip()
+                    if "NVME" in tran or nombre_d.startswith("nvme"):
+                        t_disco = "NVMe SSD"
+                    elif tran == "USB":
+                        t_disco = "Externo USB"
+                    elif not es_rot:
+                        t_disco = "SATA SSD"
+                    else:
+                        t_disco = "HDD"
+                    discos_fisicos.append({
+                        "modelo": modelo_d,
+                        "tipo": t_disco,
+                        "interfaz": tran or "BLK",
+                        "capacidad_gb": round(tam_b / (1024 ** 3), 1),
+                    })
+            except Exception:
+                pass
+
+    elif not discos_fisicos and sys.platform == "darwin":
+        try:
+            uso_root = psutil.disk_usage("/")
+            discos_fisicos.append({
+                "modelo": "Apple Internal SSD",
+                "tipo": "NVMe SSD",
+                "interfaz": "NVMe",
+                "capacidad_gb": round(uso_root.total / (1024 ** 3), 1),
+            })
+        except Exception:
+            pass
+
     # Particiones lógicas vía psutil
     particiones = []
     for part in psutil.disk_partitions(all=False):
+        if sys.platform.startswith("linux") and (
+            part.mountpoint.startswith("/snap") or part.fstype in ("squashfs", "tmpfs", "devtmpfs")
+        ):
+            continue
         try:
             uso = psutil.disk_usage(part.mountpoint)
             particiones.append({
@@ -296,21 +599,34 @@ def _escanear_red_y_so() -> dict[str, Any]:
 
 
 def _ping_latencia(host: str) -> str:
-    """Devuelve la latencia en ms como string, o 'N/A' si falla."""
+    """Devuelve la latencia en ms como string (Windows, Linux y macOS), o 'N/A' si falla."""
     try:
+        if sys.platform == "win32":
+            cmd = ["ping", "-n", "1", "-w", "2000", host]
+            enc = "cp850"
+        elif sys.platform == "darwin":
+            cmd = ["ping", "-c", "1", "-W", "2000", host]
+            enc = "utf-8"
+        else:
+            cmd = ["ping", "-c", "1", "-W", "2", host]
+            enc = "utf-8"
+
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
         result = subprocess.run(
-            ["ping", "-n", "1", "-w", "2000", host],
+            cmd,
             capture_output=True,
             text=True,
+            encoding=enc,
+            errors="replace",
             timeout=5,
+            creationflags=creation_flags,
         )
         for line in result.stdout.splitlines():
             if "tiempo" in line.lower() or "time" in line.lower() or "ms" in line.lower():
-                # Buscar patrón "tiempo=XXms" o "time=XXms"
-                import re
-                m = re.search(r"(?:tiempo|time)[<=](\d+)\s*ms", line, re.IGNORECASE)
+                m = re.search(r"(?:tiempo|time)[<=](\d+(?:\.\d+)?)\s*ms", line, re.IGNORECASE)
                 if m:
-                    return f"{m.group(1)} ms"
+                    val_ms = int(round(float(m.group(1))))
+                    return f"{val_ms} ms"
     except Exception:
         pass
     return "N/A"
@@ -319,6 +635,48 @@ def _ping_latencia(host: str) -> str:
 # ---------------------------------------------------------------------------
 # Clase pública
 # ---------------------------------------------------------------------------
+
+def _tiene_firma_portatil(hw: dict[str, Any]) -> bool:
+    """
+    Respaldo por huella de hardware: detecta procesadores móviles (H/HS/HX/U),
+    GPUs Laptop/Mobile, memorias SO-DIMM/LPDDR o placas base de portátiles
+    (ej. LENOVO LNVNB, ASUS TUF FA506/FX505, ROG GU603/G513, Acer Nitro, HP Victus/Omen)
+    por si la tabla SMBIOS del fabricante reporta un ChassisType genérico.
+    """
+    texto = " ".join(
+        str(hw.get(k, "") or "")
+        for k in ("nombre_cpu", "gpu_principal", "mb_fabricante", "mb_modelo", "ram_tipo")
+    ).lower()
+    if any(
+        kw in texto
+        for kw in (
+            "laptop",
+            "notebook",
+            "portable",
+            "mobile",
+            "macbook",
+            "thinkpad",
+            "ideapad",
+            "legion",
+            "zenbook",
+            "vivobook",
+            "lnvnb",
+            "fa506",
+            "fx505",
+            "fx506",
+            "fa507",
+            "gu603",
+            "g513",
+            "sodimm",
+            "so-dimm",
+            "lpddr",
+        )
+    ):
+        return True
+    if re.search(r"\b(?:i[3579]-|ryzen\s+[3579]\s+|ultra\s+[579]\s+)?\d{4,5}(?:hs|hx|h|u|g[1-7])\b", texto):
+        return True
+    return False
+
 
 class LectorHardware:
     """
@@ -338,6 +696,7 @@ class LectorHardware:
         Garantiza retrocompatibilidad con las claves originales.
         """
         mb = _escanear_motherboard_bios()
+        tipo_eq = _escanear_tipo_equipo()
         cpu = _escanear_cpu()
         ram = _escanear_ram()
         gpu = _escanear_gpu()
@@ -347,11 +706,15 @@ class LectorHardware:
         # Combinar todo en un dict plano, preservando claves legacy
         datos: dict[str, Any] = {}
         datos.update(mb)
+        datos.update(tipo_eq)
         datos.update(cpu)
         datos.update(ram)
         datos.update(gpu)
         datos.update(storage)
         datos.update(red)
+
+        if datos.get("tipo_equipo") != "laptop" and _tiene_firma_portatil(datos):
+            datos["tipo_equipo"] = "laptop"
 
         return datos
 
@@ -376,9 +739,10 @@ def calcular_health_score(hw: dict[str, Any]) -> int:
     """
     score = 100
 
-    # Disco sistema (primera partición con letra C:\\ o /)
+    # Disco sistema (primera partición con letra C:\ en Windows o / en Linux/macOS)
     for part in hw.get("particiones", []):
-        if part.get("letra", "").upper().startswith("C"):
+        letra = str(part.get("letra", "")).strip().upper()
+        if letra.startswith("C") or letra == "/":
             uso = part.get("uso_pct", 0)
             if uso >= 90:
                 score -= 20
@@ -481,7 +845,12 @@ def construir_resumen_para_bd(
     hscore     = calcular_health_score(hw)
 
     # specs_json: snapshot extendido serializable (excluye listas anidadas complejas)
+    tipo_final = hw.get("tipo_equipo")
+    if tipo_final != "laptop" and _tiene_firma_portatil(hw):
+        tipo_final = "laptop"
     specs_json: dict[str, Any] = {
+        "tipo_equipo": tipo_final or "desktop",
+        "chassis_types": hw.get("chassis_types", []),
         "bios": {
             "version": hw.get("bios_version"),
             "fecha":   hw.get("bios_fecha"),

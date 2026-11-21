@@ -196,6 +196,7 @@ class MotherboardMapView:
         self._draw_pcie_gpu()
         self._draw_legend()
         self._bind_hover_events()
+        self._start_60fps_schematic_anim()
 
         # ── Botones inferiores ─────────────────────────────────────────
         self._build_nav_buttons()
@@ -1037,3 +1038,65 @@ class MotherboardMapView:
             except Exception:
                 pass
         self._tooltip_items.clear()
+
+    def _start_60fps_schematic_anim(self):
+        """
+        Animación fluida a 60 FPS (16 ms) sobre el diagrama 2D:
+          • Halo sinusoidal sobre el componente afectado o en foco.
+          • Pulso de telemetría viajando por las pistas del bus PCB.
+        """
+        import math
+
+        self._anim_phase = 0.0
+        self._bus_t = 0.0
+
+        def _tick():
+            try:
+                if not self.canvas.winfo_exists():
+                    return
+            except Exception:
+                return
+
+            c = self.canvas
+            self._anim_phase = (self._anim_phase + 0.12) % (2.0 * math.pi)
+            self._bus_t = (self._bus_t + 0.018) % 1.0
+
+            c.delete("anim_60fps")
+
+            # 1. Halo pulsante a 60 FPS sobre el componente afectado (o CPU si todo está óptimo)
+            target_key = (self.comp_afectado or "CPU").lower()
+            rect = getattr(self, f"_{target_key}_bounds", getattr(self, "_cpu_bounds", None))
+            if rect:
+                x1, y1, x2, y2 = rect
+                onda = 0.5 + 0.5 * math.sin(self._anim_phase)
+                pad = int(2 + 4 * onda)
+                if self.comp_afectado:
+                    r_col = int(120 + 119 * onda)
+                    col_halo = f"#{r_col:02x}2828"
+                else:
+                    g_col = int(110 + 115 * onda)
+                    b_col = int(130 + 95 * onda)
+                    col_halo = f"#0a{g_col:02x}{b_col:02x}"
+                c.create_rectangle(
+                    x1 - pad, y1 - pad, x2 + pad, y2 + pad,
+                    outline=col_halo, width=2, dash=(6, 4), tags="anim_60fps"
+                )
+
+            # 2. Pulso de datos desplazándose a 60 FPS entre CPU -> RAM y CPU -> GPU
+            t = self._bus_t
+            px1 = 321 + (416 - 321) * t
+            py1 = 114
+            c.create_oval(
+                px1 - 3, py1 - 3, px1 + 3, py1 + 3,
+                fill=C["text_cyan"], outline="", tags="anim_60fps"
+            )
+            px2 = 265
+            py2 = 170 + (242 - 170) * t
+            c.create_oval(
+                px2 - 3, py2 - 3, px2 + 3, py2 + 3,
+                fill=C["ok"], outline="", tags="anim_60fps"
+            )
+
+            c.after(16, _tick)
+
+        self.canvas.after(16, _tick)

@@ -1,0 +1,11 @@
+# Entornos virtuales y compilación PyInstaller
+.venv/
+venv/
+build/
+dist/
+__pycache__/
+*.py[cod]
+*.spec
+
+# Secretos locales
+.env

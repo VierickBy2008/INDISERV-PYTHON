@@ -1,5 +1,0 @@
-customtkinter
-pillow
-psutil
-supabase
-python-dotenv
