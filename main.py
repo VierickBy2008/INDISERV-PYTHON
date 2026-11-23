@@ -178,6 +178,44 @@ class AppIndiServ(ctk.CTk):
             self.ticket_id_actual = f"{prefijo}-TICKET-{random.randint(1000, 9999)}".strip()
         return str(self.ticket_id_actual).strip()
 
+    def _registrar_evento_nube(
+        self,
+        tipo_evento: str,
+        categoria: str,
+        subcategoria: str,
+        solucion: str,
+        codigo: str | int = 0,
+        prefijo_evento: str = "EVT",
+        ticket_id_fijo: str | None = None,
+    ) -> str | None:
+        """
+        Registra automáticamente un reporte en Supabase ('reportes_diagnostico')
+        vinculado exclusivamente a self.dni_usuario_activo, en segundo plano.
+        """
+        dni = (self.dni_usuario_activo or "").strip()
+        if not dni:
+            return None
+        hw = self.hardware_detectado or {}
+        prefijo_dni = dni[:4] if len(dni) >= 4 else "USER"
+        t_id = (ticket_id_fijo or f"{prefijo_dni}-{prefijo_evento}-{random.randint(1000, 9999)}").strip()
+        diag_payload = {
+            "codigo": codigo,
+            "tipo_evento": tipo_evento,
+            "categoria": categoria,
+            "subcategoria": subcategoria,
+            "solucion": solucion,
+        }
+
+        def _bg_sync():
+            try:
+                CloudGateway.subir_ticket(t_id, dni, hw, diag_payload)
+                CloudGateway.subir_sugerencia(t_id, str(solucion).strip() or "Registro automático.")
+            except Exception as exc:
+                print(f"[HistorialAuto] Error registrando {t_id}: {exc}")
+
+        threading.Thread(target=_bg_sync, daemon=True).start()
+        return t_id
+
     def _crear_encabezado_vista(
         self,
         parent,
@@ -367,6 +405,15 @@ class AppIndiServ(ctk.CTk):
         """Ejecutado en hilo secundario: escanea hardware y luego notifica a la GUI."""
         try:
             self.hardware_detectado = LectorHardware.escanear_entorno()
+            hw = self.hardware_detectado or {}
+            score = calcular_health_score(hw)
+            self._registrar_evento_nube(
+                tipo_evento="Escaneo Inicial",
+                categoria="Escaneo de Hardware",
+                subcategoria=f"Telemetría inicial ({hw.get('so', 'OS')} · Salud {score}/100)",
+                solucion="Escaneo automático inicial de CPU, RAM, GPU, discos y red completado.",
+                prefijo_evento="SCAN",
+            )
         except Exception as exc:
             self.hardware_detectado = {
                 "nombre_cpu": "Error en escaneo",
@@ -589,6 +636,15 @@ class AppIndiServ(ctk.CTk):
         def _bg():
             try:
                 self.hardware_detectado = LectorHardware.escanear_entorno()
+                hw = self.hardware_detectado or {}
+                score = calcular_health_score(hw)
+                self._registrar_evento_nube(
+                    tipo_evento="Re-escaneo Hardware",
+                    categoria="Re-escaneo de Telemetría",
+                    subcategoria=f"Actualización manual ({hw.get('so', 'OS')} · Salud {score}/100)",
+                    solucion="Re-escaneo de sensores y estado de hardware registrado en el historial.",
+                    prefijo_evento="SCAN",
+                )
             except Exception:
                 pass
             self.after(0, self.pantalla_dashboard)
@@ -1908,6 +1964,22 @@ class AppIndiServ(ctk.CTk):
                 dur = resultado.get("duracion_objetivo_s", 10.0)
                 self._barra_stress.set(100.0, f"{dur:.1f} s / {dur:.1f} s (100%)", animar=True)
 
+            if not resultado.get("cancelado"):
+                estado_txt = "THROTTLING DETECTADO" if resultado.get("throttling") else "ESTABLE"
+                t_stress = self._registrar_evento_nube(
+                    tipo_evento="Micro-Stress CPU",
+                    categoria=f"Micro-Stress CPU ({estado_txt})",
+                    subcategoria=(
+                        f"{resultado.get('rendimiento_avg_mops', 0)} Mops/s · "
+                        f"Freq prom. {resultado.get('freq_avg_ghz', 0)} GHz · "
+                        f"Uso máx. {resultado.get('uso_max_pct', 0)}%"
+                    ),
+                    solucion=str(resultado.get("diagnostico", "Benchmark completado.")),
+                    prefijo_evento="STRESS",
+                )
+                if t_stress:
+                    self._stress_append_main(f"\n✔ Reporte guardado en tu historial privado: {t_stress}\n")
+
         if hasattr(self, "_btn_stress") and self._btn_stress.winfo_exists():
             self._btn_stress.configure(state="normal", text="▶  Reiniciar Test")
 
@@ -2232,7 +2304,15 @@ class AppIndiServ(ctk.CTk):
             else "USER"
         )
         self.ticket_id_actual = f"{prefijo}-TICKET-{random.randint(1000, 9999)}".strip()
-        self.ticket_sincronizado = False
+        self.ticket_sincronizado = True
+        self._registrar_evento_nube(
+            tipo_evento="Árbol Diagnóstico",
+            categoria=str(dictamen.get("categoria", "Diagnóstico")),
+            subcategoria=str(dictamen.get("subcategoria", "Dictamen")),
+            solucion=str(dictamen.get("solucion", "")),
+            codigo=dictamen.get("codigo", 0),
+            ticket_id_fijo=self.ticket_id_actual,
+        )
         self.pantalla_diagnostico()
 
     # =========================================================================
@@ -2559,10 +2639,15 @@ class AppIndiServ(ctk.CTk):
 
             for item in filas:
                 t_id = item.get("id_ticket", "?")
-                tipo = (item.get("specs_json") or {}).get("tipo_equipo", "desktop")
+                specs = item.get("specs_json") or {}
+                tipo = specs.get("tipo_equipo", "desktop")
+                evento = specs.get("tipo_evento") or "Diagnóstico"
                 etiqueta_tipo = "Teléfono" if tipo == "phone" else ("Laptop" if tipo == "laptop" else "PC")
                 score = item.get("health_score", 100)
                 equipo = item.get("placa_base") or item.get("cpu") or "Equipo diagnosticado"
+                diag_txt = (item.get("diagnostico") or "").strip()
+                fecha_raw = str(item.get("fecha_creacion") or "")
+                fecha_fmt = fecha_raw[:16].replace("T", " ") if len(fecha_raw) >= 16 else ""
 
                 fila = ctk.CTkFrame(
                     scroll, fg_color=P["surface"], corner_radius=8,
@@ -2573,13 +2658,17 @@ class AppIndiServ(ctk.CTk):
                 info_box = ctk.CTkFrame(fila, fg_color="transparent")
                 info_box.pack(side="left", fill="x", expand=True, padx=10, pady=8)
 
+                meta_line = f"[{evento}]  {t_id}  ·  {etiqueta_tipo}  ·  Salud {score}/100"
+                if fecha_fmt:
+                    meta_line += f"  ·  {fecha_fmt}"
                 ctk.CTkLabel(
-                    info_box, text=f"{t_id}  ·  {etiqueta_tipo}  ·  Salud {score}/100",
-                    font=("Segoe UI Semibold", 12), text_color=P["texto"], anchor="w"
+                    info_box, text=meta_line,
+                    font=("Segoe UI Semibold", 11), text_color=P["texto"], anchor="w"
                 ).pack(fill="x")
+                detalle = diag_txt if diag_txt else str(equipo)
                 ctk.CTkLabel(
-                    info_box, text=str(equipo)[:78],
-                    font=F_SMALL, text_color=P["texto_sec"], anchor="w"
+                    info_box, text=f"{str(equipo)[:42]} — {detalle}"[:92],
+                    font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
                 ).pack(fill="x")
 
                 boton(

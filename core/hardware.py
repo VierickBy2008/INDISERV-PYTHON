@@ -853,6 +853,7 @@ def construir_resumen_para_bd(
     specs_json: dict[str, Any] = {
         "tipo_equipo": tipo_final or "desktop",
         "owner_dni": clean_dni or None,
+        "tipo_evento": str(diag.get("tipo_evento") or "Diagnóstico"),
         "chassis_types": hw.get("chassis_types", []),
         "bios": {
             "version": hw.get("bios_version"),
