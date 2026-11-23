@@ -573,13 +573,15 @@ class AppIndiServ(ctk.CTk):
 
         boton(fila2, "🗺️ Mapa 2D de Hardware",
               lambda: self._abrir_mapa_desde_vista("", self.pantalla_dashboard),
-              variante="ambar", width=210, height=32, font=F_SMALL).grid(row=0, column=0, padx=5)
-        boton(fila2, "🌐 Visor Gemelo Digital 3D", self.abrir_visor_3d,
-              variante="neutro", width=210, height=32, font=F_SMALL).grid(row=0, column=1, padx=5)
-        boton(fila2, "5. Buzón de Sugerencias", self.modal_sugerencias,
-              variante="neutro", width=190, height=32, font=F_SMALL).grid(row=0, column=2, padx=5)
-        boton(fila2, "🛡️ Política y Términos", self.modal_politica_privacidad,
-              variante="fantasma", width=185, height=32, font=F_SMALL).grid(row=0, column=3, padx=5)
+              variante="ambar", width=175, height=32, font=F_SMALL).grid(row=0, column=0, padx=4)
+        boton(fila2, "🌐 Visor Gemelo 3D", self.abrir_visor_3d,
+              variante="neutro", width=165, height=32, font=F_SMALL).grid(row=0, column=1, padx=4)
+        boton(fila2, "🔒 Mis Tickets", self.modal_mis_tickets,
+              variante="azul", width=155, height=32, font=F_SMALL).grid(row=0, column=2, padx=4)
+        boton(fila2, "5. Sugerencias", self.modal_sugerencias,
+              variante="neutro", width=150, height=32, font=F_SMALL).grid(row=0, column=3, padx=4)
+        boton(fila2, "🛡️ Privacidad", self.modal_politica_privacidad,
+              variante="fantasma", width=140, height=32, font=F_SMALL).grid(row=0, column=4, padx=4)
 
     def _reescanear_rapido(self):
         toast(self, "Actualizando telemetría del equipo en segundo plano…", tipo="info", duracion_ms=1800)
@@ -2496,6 +2498,113 @@ class AppIndiServ(ctk.CTk):
         boton(
             fila_btn, "Cerrar", v.destroy,
             variante="neutro", width=120, height=34, font=F_SMALL
+        ).pack(side="left", padx=6)
+
+    # =========================================================================
+    # MODAL 3: MIS TICKETS PRIVADOS EN LA NUBE (SOLO CUENTA ACTIVA)
+    # =========================================================================
+    def modal_mis_tickets(self):
+        v = ctk.CTkToplevel(self)
+        estilizar_toplevel(v, self, "Mis Tickets Privados en la Nube", 660, 460)
+
+        card = tarjeta(v)
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        dni = (self.dni_usuario_activo or "").strip()
+        dni_mask = f"••••{dni[-4:]}" if len(dni) >= 4 else (dni or "SIN SESIÓN")
+
+        enc = ctk.CTkFrame(card, fg_color="transparent")
+        enc.pack(fill="x", padx=14, pady=(12, 4))
+        ctk.CTkLabel(
+            enc, text="🔒 Mis Tickets Privados en la Nube",
+            font=F_H2, text_color=P["texto"]
+        ).pack(side="left")
+        Badge(enc, f"Cuenta DNI {dni_mask}", tipo="ok" if dni else "warn").pack(side="right")
+
+        ctk.CTkLabel(
+            card,
+            text="Por seguridad y privacidad, solo se muestran los reportes generados con tu cuenta.",
+            font=F_SMALL, text_color=P["texto_sec"], anchor="w"
+        ).pack(fill="x", padx=14, pady=(0, 8))
+
+        scroll = ctk.CTkScrollableFrame(card, fg_color=P["fondo"], corner_radius=8)
+        scroll.pack(fill="both", expand=True, padx=14, pady=4)
+
+        lbl_estado = ctk.CTkLabel(
+            scroll, text="Consultando tus reportes privados en Supabase…",
+            font=F_SMALL, text_color=P["texto_sec"]
+        )
+        lbl_estado.pack(pady=24)
+
+        def _render_tickets(filas: list[dict]):
+            if not v.winfo_exists():
+                return
+            for w in scroll.winfo_children():
+                w.destroy()
+            if not dni:
+                ctk.CTkLabel(
+                    scroll,
+                    text="Inicie sesión con su cuenta para ver sus reportes privados.",
+                    font=F_SMALL, text_color=P["texto_sec"]
+                ).pack(pady=24)
+                return
+            if not filas:
+                ctk.CTkLabel(
+                    scroll,
+                    text=f"Aún no tienes tickets guardados con tu cuenta ({dni_mask}).\n"
+                         "Genera un diagnóstico o abre el Visor 3D para registrar tu primer reporte.",
+                    font=F_SMALL, text_color=P["texto_sec"], justify="center"
+                ).pack(pady=28)
+                return
+
+            for item in filas:
+                t_id = item.get("id_ticket", "?")
+                tipo = (item.get("specs_json") or {}).get("tipo_equipo", "desktop")
+                etiqueta_tipo = "Teléfono" if tipo == "phone" else ("Laptop" if tipo == "laptop" else "PC")
+                score = item.get("health_score", 100)
+                equipo = item.get("placa_base") or item.get("cpu") or "Equipo diagnosticado"
+
+                fila = ctk.CTkFrame(
+                    scroll, fg_color=P["surface"], corner_radius=8,
+                    border_width=1, border_color=P["borde"]
+                )
+                fila.pack(fill="x", padx=6, pady=4)
+
+                info_box = ctk.CTkFrame(fila, fg_color="transparent")
+                info_box.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+
+                ctk.CTkLabel(
+                    info_box, text=f"{t_id}  ·  {etiqueta_tipo}  ·  Salud {score}/100",
+                    font=("Segoe UI Semibold", 12), text_color=P["texto"], anchor="w"
+                ).pack(fill="x")
+                ctk.CTkLabel(
+                    info_box, text=str(equipo)[:78],
+                    font=F_SMALL, text_color=P["texto_sec"], anchor="w"
+                ).pack(fill="x")
+
+                boton(
+                    fila, "Abrir 3D",
+                    lambda tid=t_id: webbrowser.open(f"https://indiserv-web3d.vercel.app/?ticket={tid}"),
+                    variante="primario", width=92, height=28, font=F_SMALL
+                ).pack(side="right", padx=10, pady=8)
+
+        def _cargar_en_hilo():
+            filas = CloudGateway.listar_tickets_usuario(dni)
+            if v.winfo_exists():
+                v.after(0, lambda: _render_tickets(filas))
+
+        threading.Thread(target=_cargar_en_hilo, daemon=True).start()
+
+        fila_b = ctk.CTkFrame(card, fg_color="transparent")
+        fila_b.pack(pady=(6, 12))
+        boton(
+            fila_b, "⟳ Actualizar",
+            lambda: threading.Thread(target=_cargar_en_hilo, daemon=True).start(),
+            variante="neutro", width=130, height=32, font=F_SMALL
+        ).pack(side="left", padx=6)
+        boton(
+            fila_b, "Cerrar", v.destroy,
+            variante="neutro", width=110, height=32, font=F_SMALL
         ).pack(side="left", padx=6)
 
     # =========================================================================

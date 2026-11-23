@@ -105,7 +105,7 @@ class CloudGateway:
         """
         from core.hardware import construir_resumen_para_bd  # import local para evitar circular
 
-        payload = construir_resumen_para_bd(ticket_id, hw, diag)
+        payload = construir_resumen_para_bd(ticket_id, hw, diag, owner_dni=dni)
 
         print("\n" + "=" * 60)
         print(f"[CloudGateway] Enviando ticket {ticket_id} a Supabase...")
@@ -136,6 +136,34 @@ class CloudGateway:
             print(f"  Mensaje: {exc}")
             traceback.print_exc()
             return False
+
+    # ------------------------------------------------------------------
+    # CONSULTA PRIVADA DE TICKETS DEL USUARIO ACTIVO
+    # ------------------------------------------------------------------
+    @staticmethod
+    def listar_tickets_usuario(dni: str | None, limite: int = 20) -> list[dict[str, Any]]:
+        """
+        Devuelve únicamente los tickets en 'reportes_diagnostico' cuyo
+        specs_json->>owner_dni coincide exactamente con el DNI autenticado.
+        Por privacidad nunca devuelve tickets globales ni de otros operadores.
+        """
+        clean_dni = str(dni or "").strip()
+        if not clean_dni or clean_dni.upper() in ("USER", "LOCAL", "NONE"):
+            return []
+        try:
+            client = _get_client()
+            resp = (
+                client.table(TABLA_TICKETS)
+                .select("id_ticket, cpu, placa_base, health_score, diagnostico, fecha_creacion, specs_json")
+                .eq("specs_json->>owner_dni", clean_dni)
+                .order("fecha_creacion", desc=True)
+                .limit(limite)
+                .execute()
+            )
+            return list(resp.data or [])
+        except Exception as exc:
+            print(f"[CloudGateway.listar_tickets_usuario] ERROR: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # Método legacy subir_ticket con firma antigua (compatibilidad)

@@ -828,6 +828,7 @@ def construir_resumen_para_bd(
     ticket_id: str,
     hw: dict[str, Any],
     diag: dict[str, Any],
+    owner_dni: str | None = None,
 ) -> dict[str, Any]:
     """
     Construye el payload limpio y tipado para la tabla 'reportes_diagnostico'.
@@ -848,8 +849,10 @@ def construir_resumen_para_bd(
     tipo_final = hw.get("tipo_equipo")
     if tipo_final != "laptop" and _tiene_firma_portatil(hw):
         tipo_final = "laptop"
+    clean_dni = str(owner_dni).strip() if owner_dni else ""
     specs_json: dict[str, Any] = {
         "tipo_equipo": tipo_final or "desktop",
+        "owner_dni": clean_dni or None,
         "chassis_types": hw.get("chassis_types", []),
         "bios": {
             "version": hw.get("bios_version"),
