@@ -2527,7 +2527,7 @@ class AppIndiServ(ctk.CTk):
             font=F_SMALL, text_color=P["texto_sec"], anchor="w"
         ).pack(fill="x", padx=14, pady=(0, 8))
 
-        scroll = ctk.CTkScrollableFrame(card, fg_color=P["fondo"], corner_radius=8)
+        scroll = ctk.CTkScrollableFrame(card, fg_color=P["bg"], corner_radius=8)
         scroll.pack(fill="both", expand=True, padx=14, pady=4)
 
         lbl_estado = ctk.CTkLabel(
@@ -2590,8 +2590,10 @@ class AppIndiServ(ctk.CTk):
 
         def _cargar_en_hilo():
             filas = CloudGateway.listar_tickets_usuario(dni)
-            if v.winfo_exists():
-                v.after(0, lambda: _render_tickets(filas))
+            try:
+                self.after(0, lambda f=filas: _render_tickets(f))
+            except Exception:
+                pass
 
         threading.Thread(target=_cargar_en_hilo, daemon=True).start()
 
