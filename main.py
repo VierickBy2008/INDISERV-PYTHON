@@ -101,18 +101,32 @@ class AppIndiServ(ctk.CTk):
         super().__init__()
         self.title("IndiServ Analytica — Sistema Experto de Diagnóstico de PC")
         self.geometry("980x700")
-        self.resizable(False, False)
+        self.minsize(960, 680)
+        self.resizable(True, True)
         self.configure(fg_color=P["bg"])
 
+        self._es_pantalla_completa: bool = False
+        self._btn_fullscreen = None
+        self._bg_pil = None
+        self._bg_resize_after = None
+        self._bg_last_size = (0, 0)
         self.bg_label = None
         fondo_path = _resource_path(os.path.join("assets", "fondo.jpg"))
         if os.path.exists(fondo_path):
             try:
-                self.bg_image = ctk.CTkImage(Image.open(fondo_path), size=(980, 700))
+                self._bg_pil = Image.open(fondo_path)
+                self.bg_image = ctk.CTkImage(self._bg_pil, size=(980, 700))
                 self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
                 self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
             except Exception:
                 pass
+
+        self.bind("<Configure>", self._al_redimensionar_ventana)
+        self.bind("<F11>", lambda _e: self.alternar_pantalla_completa())
+        self.bind("<Escape>", lambda _e: self.salir_pantalla_completa())
+        if sys.platform == "darwin":
+            self.bind("<Command-Control-f>", lambda _e: self.alternar_pantalla_completa())
+            self.bind("<Command-Shift-F>", lambda _e: self.alternar_pantalla_completa())
 
         self.dni_usuario_activo: str | None = None
         self.hardware_detectado: dict | None = None
@@ -131,6 +145,114 @@ class AppIndiServ(ctk.CTk):
 
         self.protocol("WM_DELETE_WINDOW", self._al_cerrar_ventana)
         self.pantalla_login()
+        self.after(80, lambda: self._aplicar_pantalla_completa(True))
+
+    def _al_redimensionar_ventana(self, event=None):
+        """Reescala el fondo dinámicamente al cambiar entre ventana y pantalla completa."""
+        if event is not None and event.widget is not self:
+            return
+        if not self._bg_pil or not self.bg_label:
+            return
+        w = max(980, self.winfo_width())
+        h = max(700, self.winfo_height())
+        if abs(w - self._bg_last_size[0]) < 12 and abs(h - self._bg_last_size[1]) < 12:
+            return
+        if self._bg_resize_after:
+            try:
+                self.after_cancel(self._bg_resize_after)
+            except Exception:
+                pass
+
+        def _aplicar_bg():
+            self._bg_resize_after = None
+            try:
+                if not self.winfo_exists() or not self.bg_label:
+                    return
+                cw = max(980, self.winfo_width())
+                ch = max(700, self.winfo_height())
+                self._bg_last_size = (cw, ch)
+                self.bg_image = ctk.CTkImage(self._bg_pil, size=(cw, ch))
+                self.bg_label.configure(image=self.bg_image)
+            except Exception:
+                pass
+
+        self._bg_resize_after = self.after(60, _aplicar_bg)
+
+    def _aplicar_pantalla_completa(self, activar: bool):
+        """Activa o desactiva pantalla completa de forma segura en Windows, Linux y macOS."""
+        self._es_pantalla_completa = bool(activar)
+        aplicado = False
+        try:
+            self.attributes("-fullscreen", self._es_pantalla_completa)
+            aplicado = True
+        except Exception:
+            aplicado = False
+
+        if not aplicado and self._es_pantalla_completa:
+            try:
+                if sys.platform == "win32" or sys.platform == "darwin":
+                    self.state("zoomed")
+                else:
+                    self.attributes("-zoomed", True)
+            except Exception:
+                try:
+                    sw = self.winfo_screenwidth()
+                    sh = self.winfo_screenheight()
+                    self.geometry(f"{sw}x{sh}+0+0")
+                except Exception:
+                    pass
+        elif not self._es_pantalla_completa:
+            try:
+                if sys.platform == "win32" or sys.platform == "darwin":
+                    self.state("normal")
+                else:
+                    self.attributes("-zoomed", False)
+            except Exception:
+                pass
+            try:
+                sw = self.winfo_screenwidth()
+                sh = self.winfo_screenheight()
+                x = max(0, (sw - 980) // 2)
+                y = max(0, (sh - 700) // 2)
+                self.geometry(f"980x700+{x}+{y}")
+            except Exception:
+                self.geometry("980x700")
+
+        self._actualizar_texto_btn_fullscreen()
+        self.after(90, self._al_redimensionar_ventana)
+
+    def alternar_pantalla_completa(self):
+        """Alterna entre modo pantalla completa y modo ventana (F11 / botón superior)."""
+        self._aplicar_pantalla_completa(not self._es_pantalla_completa)
+
+    def salir_pantalla_completa(self):
+        """Sale del modo pantalla completa al presionar Escape."""
+        if self._es_pantalla_completa:
+            self._aplicar_pantalla_completa(False)
+
+    def _texto_btn_fullscreen(self) -> str:
+        return "🗗 Ventana (Esc)" if self._es_pantalla_completa else "⛶ Pantalla Completa"
+
+    def _actualizar_texto_btn_fullscreen(self):
+        if self._btn_fullscreen is not None:
+            try:
+                if self._btn_fullscreen.winfo_exists():
+                    self._btn_fullscreen.configure(text=self._texto_btn_fullscreen())
+            except Exception:
+                pass
+
+    def _colocar_boton_fullscreen_flotante(self):
+        """Coloca un botón discreto en la esquina superior derecha para pantallas centradas."""
+        self._btn_fullscreen = boton(
+            self,
+            self._texto_btn_fullscreen(),
+            self.alternar_pantalla_completa,
+            variante="neutro",
+            width=142,
+            height=28,
+            font=F_CAPTION,
+        )
+        self._btn_fullscreen.place(relx=0.985, rely=0.022, anchor="ne")
 
     def _al_cerrar_ventana(self):
         if self._stress_actual and self._stress_actual.activo:
@@ -247,6 +369,7 @@ class AppIndiServ(ctk.CTk):
 
     def pantalla_login(self):
         self.limpiar_panel()
+        self._colocar_boton_fullscreen_flotante()
 
         card = ctk.CTkFrame(
             self, width=440, height=495, corner_radius=0,
@@ -437,6 +560,7 @@ class AppIndiServ(ctk.CTk):
 
     def pantalla_registro(self):
         self.limpiar_panel()
+        self._colocar_boton_fullscreen_flotante()
 
         frame = ctk.CTkFrame(
             self, width=460, height=605, corner_radius=0,
@@ -553,11 +677,10 @@ class AppIndiServ(ctk.CTk):
             t_score, lbl_score = "err", f"Salud Global: {score}/100 · Crítico"
 
         frame = ctk.CTkFrame(
-            self, width=948, height=668, corner_radius=0,
+            self, corner_radius=0,
             fg_color=P["bg"], border_width=1, border_color=P["borde"]
         )
-        animar_entrada_panel(frame)
-        frame.pack_propagate(False)
+        frame.place(relx=0.5, rely=0.5, relwidth=0.96, relheight=0.94, anchor="center")
 
         topbar = ctk.CTkFrame(
             frame, fg_color=P["surface"], corner_radius=10,
@@ -583,15 +706,20 @@ class AppIndiServ(ctk.CTk):
 
         der = ctk.CTkFrame(topbar, fg_color="transparent")
         der.pack(side="right", padx=12, pady=8)
+        self._btn_fullscreen = boton(
+            der, self._texto_btn_fullscreen(), self.alternar_pantalla_completa,
+            variante="neutro", width=136, height=30, font=F_SMALL
+        )
+        self._btn_fullscreen.pack(side="left", padx=(0, 6))
         boton(der, "⟳ Re-escanear", self._reescanear_rapido,
               variante="neutro", width=118, height=30, font=F_SMALL).pack(side="left", padx=(0, 6))
         boton(der, "Cerrar Sesión", self.pantalla_login,
               variante="peligro", width=118, height=30, font=F_SMALL).pack(side="left")
 
         self.tabs_dashboard = ctk.CTkTabview(
-            frame, width=922, height=455, **estilo_tabview()
+            frame, **estilo_tabview()
         )
-        self.tabs_dashboard.pack(pady=(0, 6), padx=12)
+        self.tabs_dashboard.pack(fill="both", expand=True, pady=(0, 6), padx=12)
 
         for nombre in ("General", "CPU / RAM", "Gráficos", "Discos", "Red"):
             self.tabs_dashboard.add(nombre)
