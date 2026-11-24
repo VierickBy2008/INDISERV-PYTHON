@@ -13,13 +13,9 @@ from typing import Any
 
 from supabase import create_client, Client
 
-# ---------------------------------------------------------------------------
-# Credenciales (hardcoded — mover a .env en producción)
-# ---------------------------------------------------------------------------
 SUPABASE_URL  = "https://pvrfnvrxaxulcxacdino.supabase.co"
 SUPABASE_KEY  = "sb_publishable_G7D4dhh3Q2LWzgRnzRRa9A_4ngZ5FiW"
 
-# Tabla principal de tickets de diagnóstico
 TABLA_TICKETS = "reportes_diagnostico"
 TABLA_PADRON  = "padron_oficial"
 TABLA_USUARIOS = "usuarios_app"
@@ -36,9 +32,6 @@ class CloudGateway:
     código existente en main.py (se invocan como CloudGateway.metodo()).
     """
 
-    # ------------------------------------------------------------------
-    # AUTH / USUARIOS (sin cambios funcionales, preservados)
-    # ------------------------------------------------------------------
     @staticmethod
     def consultar_padron(dni: str) -> dict:
         client = _get_client()
@@ -87,9 +80,6 @@ class CloudGateway:
             print(f"[CloudGateway.registrar_usuario] ERROR: {exc}")
             return False
 
-    # ------------------------------------------------------------------
-    # TICKETS DE DIAGNÓSTICO (Fase 3 — tabla 'reportes_diagnostico')
-    # ------------------------------------------------------------------
     @staticmethod
     def subir_ticket(ticket_id: str, dni: str, hw: dict, diag: dict) -> bool:
         """
@@ -103,7 +93,7 @@ class CloudGateway:
         hw        : dict — dict completo de LectorHardware.escanear_entorno()
         diag      : dict — dictamen final del motor de diagnóstico
         """
-        from core.hardware import construir_resumen_para_bd  # import local para evitar circular
+        from core.hardware import construir_resumen_para_bd
 
         payload = construir_resumen_para_bd(ticket_id, hw, diag, owner_dni=dni)
 
@@ -111,7 +101,6 @@ class CloudGateway:
         print(f"[CloudGateway] Enviando ticket {ticket_id} a Supabase...")
         print(f"[CloudGateway] Tabla: {TABLA_TICKETS}")
         print("[CloudGateway] Payload:")
-        # specs_json puede ser grande — se serializa y se muestra resumido
         payload_log = {k: (v if k != "specs_json" else "{...JSON extendido...}") for k, v in payload.items()}
         print(_json.dumps(payload_log, indent=2, ensure_ascii=False))
         print("=" * 60)
@@ -137,9 +126,6 @@ class CloudGateway:
             traceback.print_exc()
             return False
 
-    # ------------------------------------------------------------------
-    # CONSULTA PRIVADA DE TICKETS DEL USUARIO ACTIVO
-    # ------------------------------------------------------------------
     @staticmethod
     def listar_tickets_usuario(dni: str | None, limite: int = 20) -> list[dict[str, Any]]:
         """
@@ -165,18 +151,11 @@ class CloudGateway:
             print(f"[CloudGateway.listar_tickets_usuario] ERROR: {exc}")
             return []
 
-    # ------------------------------------------------------------------
-    # Método legacy subir_ticket con firma antigua (compatibilidad)
-    # ------------------------------------------------------------------
     @staticmethod
     def subir_ticket_legacy(ticket_id: str, dni: str, hw: dict, diag: dict) -> bool:
         """Alias para compatibilidad con código anterior que llame al gateway directamente."""
         return CloudGateway.subir_ticket(ticket_id, dni, hw, diag)
 
-    # ------------------------------------------------------------------
-    # SUGERENCIAS (tabla 'sugerencias_locales')
-    # Esquema exacto: id_ticket (text PK), sugerencia (text)
-    # ------------------------------------------------------------------
     @staticmethod
     def subir_sugerencia(ticket_id: str, sugerencia_texto: str) -> bool:
         """

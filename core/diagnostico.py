@@ -31,9 +31,6 @@ from typing import Callable
 import psutil
 
 
-# =============================================================================
-# 1. MOTOR DIAGNÓSTICO ORIGINAL (preservado sin cambios)
-# =============================================================================
 class MotorDiagnostico:
     @staticmethod
     def evaluar_energia(cable_ok: bool, switch_ok: bool, ventilador_gira: bool, intermitente: bool):
@@ -86,32 +83,24 @@ class MotorDiagnostico:
         }
 
 
-# =============================================================================
-# 2. MATRIZ PONDERADA DE SÍNTOMAS
-# =============================================================================
-
-# Lista canónica de síntomas seleccionables por el operador.
-# El índice de cada ítem es su ID en el sistema de pesos.
 SINTOMAS_DISPONIBLES: list[str] = [
-    "La PC no da señal de encendido (sin luces ni ventiladores)",   # 0
-    "Pantalla negra al encender (sin imagen en monitor)",            # 1
-    "Pitidos durante el POST al iniciar el equipo",                  # 2
-    "Pantallas azules (BSOD) frecuentes o aleatorias",              # 3
-    "Reinicios aleatorios o arranque en bucle (Boot Loop)",          # 4
-    "Temperatura de CPU muy alta / aviso de sobrecalentamiento",     # 5
-    "Ventilador de CPU inactivo, trabado o excesivamente ruidoso",   # 6
-    "Sistema extremadamente lento o congelado",                      # 7
-    "Disco duro / SSD al 100% de uso de forma constante",           # 8
-    "Memoria RAM al límite o uso de memoria anormalmente alto",      # 9
-    "GPU no detectada, pantalla con artefactos o parpadeos",         # 10
-    "Sin señal de video aunque el equipo intenta arrancar",          # 11
-    "Apagados bruscos o cortes de energía sin previo aviso",         # 12
-    "Errores al leer archivos o datos corruptos en disco",           # 13
-    "Conexión de red inestable, pérdida de paquetes o ping alto",    # 14
+    "La PC no da señal de encendido (sin luces ni ventiladores)",
+    "Pantalla negra al encender (sin imagen en monitor)",
+    "Pitidos durante el POST al iniciar el equipo",
+    "Pantallas azules (BSOD) frecuentes o aleatorias",
+    "Reinicios aleatorios o arranque en bucle (Boot Loop)",
+    "Temperatura de CPU muy alta / aviso de sobrecalentamiento",
+    "Ventilador de CPU inactivo, trabado o excesivamente ruidoso",
+    "Sistema extremadamente lento o congelado",
+    "Disco duro / SSD al 100% de uso de forma constante",
+    "Memoria RAM al límite o uso de memoria anormalmente alto",
+    "GPU no detectada, pantalla con artefactos o parpadeos",
+    "Sin señal de video aunque el equipo intenta arrancar",
+    "Apagados bruscos o cortes de energía sin previo aviso",
+    "Errores al leer archivos o datos corruptos en disco",
+    "Conexión de red inestable, pérdida de paquetes o ping alto",
 ]
 
-# Mapa de causas raíz con pesos por síntoma.
-# Peso 0.0–1.0: cuánta evidencia aporta ese síntoma a esta causa.
 _CAUSAS_RAIZ: dict[str, dict] = {
     "Fuente de Poder (PSU)": {
         "descripcion": "La PSU no entrega voltaje estable o suficiente en uno o más rieles.",
@@ -231,13 +220,10 @@ class MatrizSintomas:
         resultados = []
         for causa, datos in _CAUSAS_RAIZ.items():
             pesos = datos["pesos"]
-            # Score bruto: suma de pesos de síntomas que coinciden
             score = sum(pesos.get(i, 0.0) for i in indices)
             if score == 0:
                 continue
-            # Máximo teórico: si se hubieran seleccionado TODOS los síntomas de esta causa
             max_posible = sum(pesos.values())
-            # Probabilidad = qué porcentaje del máximo teórico se alcanzó
             pct = round(min((score / max_posible) * 100, 99.9), 1)
             resultados.append({
                 "causa": causa,
@@ -250,13 +236,6 @@ class MatrizSintomas:
         resultados.sort(key=lambda x: x["probabilidad"], reverse=True)
         return resultados
 
-
-# =============================================================================
-# 3. CATÁLOGO ÚNICO DE DICTÁMENES Y RAMAS DEL ÁRBOL
-# =============================================================================
-# Fuente de verdad compartida por el árbol guiado (main.py) y el Buscador
-# Asistido. Cada código es una hoja del árbol; el centenar identifica la rama
-# (1xx → rama 0, 2xx → rama 1 … 8xx → rama 7).
 
 RAMAS_ARBOL: list[dict] = [
     {"id": 0, "icono": "⚡", "titulo": "Sin señales de encendido",
@@ -278,7 +257,6 @@ RAMAS_ARBOL: list[dict] = [
 ]
 
 CATALOGO_DICTAMENES: dict[int, dict] = {
-    # ---- Rama 0: Energía ---------------------------------------------------
     101: {"categoria": "Fuente de Poder", "subcategoria": "Cable desconectado",
           "descripcion": "Falla de alimentación básica.",
           "solucion": "1. Desconecte el cable de poder.\n2. Reconecte firmemente en ambos extremos."},
@@ -297,7 +275,6 @@ CATALOGO_DICTAMENES: dict[int, dict] = {
     106: {"categoria": "Placa Base", "subcategoria": "Falla de POST",
           "descripcion": "Fuente operativa pero placa base inactiva.",
           "solucion": "1. Realice Clear CMOS (retire pila 30 segundos).\n2. Pruebe encender solo con CPU, 1 RAM y PSU."},
-    # ---- Rama 1: Pitidos / video ------------------------------------------
     201: {"categoria": "Memoria RAM", "subcategoria": "No detectada",
           "descripcion": "Fallo de inicialización de RAM.",
           "solucion": "1. Retire la RAM y limpie contactos.\n2. Reinserte en el slot principal."},
@@ -310,7 +287,6 @@ CATALOGO_DICTAMENES: dict[int, dict] = {
     204: {"categoria": "Video", "subcategoria": "Sin señal",
           "descripcion": "Problema de cable o monitor.",
           "solucion": "1. Verifique cables HDMI/DisplayPort.\n2. Conecte al puerto de la placa base."},
-    # ---- Rama 2: Térmica ----------------------------------------------------
     301: {"categoria": "Enfriamiento", "subcategoria": "Ventilador inactivo",
           "descripcion": "Falla térmica por ventilador inoperativo.",
           "solucion": "1. Verifique el conector CPU_FAN en la placa base.\n2. Reemplace el cooler."},
@@ -320,7 +296,6 @@ CATALOGO_DICTAMENES: dict[int, dict] = {
     303: {"categoria": "Placa Base", "subcategoria": "Falla de sensor",
           "descripcion": "Sensor reporta falso calor en BIOS.",
           "solucion": "1. Actualice la BIOS.\n2. Verifique la telemetría térmica."},
-    # ---- Rama 3: Boot loop --------------------------------------------------
     401: {"categoria": "Hardware", "subcategoria": "Falla Pre-POST",
           "descripcion": "Inestabilidad eléctrica o de RAM grave.",
           "solucion": "1. Realice un Clear CMOS.\n2. Pruebe con un solo módulo de RAM."},
@@ -330,14 +305,12 @@ CATALOGO_DICTAMENES: dict[int, dict] = {
     403: {"categoria": "Software", "subcategoria": "Conflicto de SO",
           "descripcion": "Falla de driver o actualización reciente.",
           "solucion": "1. Inicie en Modo Seguro.\n2. Desinstale actualizaciones recientes."},
-    # ---- Rama 4: SSD NVMe ---------------------------------------------------
     501: {"categoria": "Almacenamiento", "subcategoria": "Thermal Throttling",
           "descripcion": "El SSD corta conexión por sobrecalentamiento.",
           "solucion": "1. Instale un disipador pasivo para M.2.\n2. Mejore el flujo de aire del chasis."},
     502: {"categoria": "Almacenamiento", "subcategoria": "Chequeo Preventivo",
           "descripcion": "Sin corte térmico directo detectado.",
           "solucion": "1. Use CrystalDiskInfo para evaluar la salud S.M.A.R.T."},
-    # ---- Rama 5: Rendimiento ------------------------------------------------
     601: {"categoria": "Rendimiento", "subcategoria": "Proceso parásito",
           "descripcion": "Consumo anómalo de recursos en reposo.",
           "solucion": "1. Identifique el proceso y realice un análisis antimalware."},
@@ -347,14 +320,12 @@ CATALOGO_DICTAMENES: dict[int, dict] = {
     603: {"categoria": "Rendimiento", "subcategoria": "Saturación de Inicio",
           "descripcion": "Exceso de aplicaciones en arranque.",
           "solucion": "1. Abra el Administrador de Tareas y deshabilite apps de inicio innecesarias."},
-    # ---- Rama 6: RAM / XMP --------------------------------------------------
     701: {"categoria": "RAM", "subcategoria": "Configuración Base",
           "descripcion": "Verificación de frecuencia base.",
           "solucion": "1. Verifique en BIOS que la velocidad coincida con la especificación de fábrica."},
     702: {"categoria": "RAM", "subcategoria": "Inestabilidad XMP/EXPO",
           "descripcion": "Perfil de overclock inestable o memoria dañada.",
           "solucion": "1. Ejecute MemTest86.\n2. Desactive o relaje el perfil XMP/EXPO en la BIOS."},
-    # ---- Rama 7: Red (nueva) -----------------------------------------------
     801: {"categoria": "Adaptador de Red", "subcategoria": "Sin conectividad",
           "descripcion": "El adaptador está desconectado, deshabilitado o sin driver operativo.",
           "solucion": "1. Verifique el cable Ethernet o reconecte la red Wi-Fi.\n"
@@ -384,7 +355,6 @@ def obtener_dictamen(codigo: int) -> dict:
     return {**base, "codigo": int(codigo)}
 
 
-# Acciones que la UI puede ofrecer tras un diagnóstico
 ACCION_ARBOL   = "arbol_guiado"
 ACCION_MAPA    = "mapa_2d"
 ACCION_3D      = "gemelo_3d"
@@ -397,13 +367,10 @@ def acciones_para(codigo: int) -> list[str]:
     acciones = [ACCION_MAPA, ACCION_3D, ACCION_REPORTE, ACCION_ARBOL]
     rama = rama_de_codigo(codigo)
     if rama in (2, 5) or int(codigo) in (105, 401, 501, 702):
-        acciones.append(ACCION_STRESS)   # casos térmicos / rendimiento / estabilidad
+        acciones.append(ACCION_STRESS)
     return acciones
 
 
-# =============================================================================
-# 4. EVIDENCIA DE TELEMETRÍA (refuerza la búsqueda con datos reales)
-# =============================================================================
 def _num(valor, defecto: float = 0.0) -> float:
     try:
         return float(str(valor).split()[0])
@@ -473,10 +440,6 @@ class EvaluadorTelemetria:
         return {c for e in evidencias for c in e["codigos"]}
 
 
-# =============================================================================
-# 5. BUSCADOR ASISTIDO (coincidencia semántica ligera, sin dependencias)
-# =============================================================================
-# Términos por hoja del catálogo. "a b" = frase (todos sus tokens deben estar).
 _CORPUS: dict[int, list[str]] = {
     101: ["cable", "cable poder", "cable energia", "enchufe", "tomacorriente", "suelto",
           "desconectado", "no enciende"],
@@ -529,7 +492,6 @@ _CORPUS: dict[int, list[str]] = {
     803: ["dns", "paginas no cargan", "navegador", "sitios no abren", "dns error", "internet"],
 }
 
-# Normalización de vocabulario coloquial → término canónico del corpus
 _SINONIMOS: dict[str, str] = {
     "prende": "enciende", "prender": "enciende", "encender": "enciende", "enciendo": "enciende",
     "encendido": "enciende", "arrancar": "arranca", "inicia": "arranca",
@@ -564,7 +526,6 @@ _STOPWORDS = {
     "toda", "sistema", "problema", "cada", "siempre", "este", "eso", "esto", "estoy", "ser",
     "sale", "salen", "aparece", "aparecen", "da", "dan", "queda", "quedo",
 }
-# "no", "sin", "antes" se conservan: cambian el significado de las frases.
 
 
 def _normalizar(texto: str) -> str:
@@ -607,7 +568,7 @@ def _coincide(tok_term: str, raices_usuario: dict[str, str]) -> str | None:
         if largo >= 5 and (r.startswith(r_u) or r_u.startswith(r)):
             return tok_u
         if largo >= 5 and difflib.SequenceMatcher(None, r, r_u).ratio() >= 0.86:
-            return tok_u        # tolerancia a errores de tipeo
+            return tok_u
     return None
 
 
@@ -673,7 +634,6 @@ class BuscadorAsistido:
                 "_peso": peso,
             })
 
-        # Desempate: score, luego peso de evidencia, luego código (estable)
         resultados.sort(key=lambda r: (r["score"], r["_peso"], -r["codigo"]), reverse=True)
         for r in resultados:
             r.pop("_peso", None)
@@ -714,11 +674,6 @@ class BuscadorAsistido:
         }
 
 
-# =============================================================================
-# 6. MICRO-STRESS TEST CONTROLADO Y CANCELABLE
-# =============================================================================
-# Código del proceso de carga: sólo stdlib, con deadline propio (se apaga solo
-# aunque el proceso padre muera) y ciclo de trabajo < 100 % para no saturar.
 _WORKER_SRC = r"""
 import math, sys, time
 dur = float(sys.argv[1]); duty = float(sys.argv[2])
@@ -798,7 +753,6 @@ class MicroStressTest:
         if max_workers is not None:
             self.n_workers = max(1, min(int(max_workers), self.MAX_WORKERS))
         else:
-            # Usa todos los hilos lógicos de cualquier modelo de CPU para llevarlo al ~90%
             self.n_workers = max(1, min(self.n_logicos, self.MAX_WORKERS))
         self.cpu_nombre = (cpu_nombre or "").strip() or "Procesador Detectado"
         self._activo = False
@@ -810,7 +764,6 @@ class MicroStressTest:
         self.modo_efectivo: str | None = None
         self.resultado: dict | None = None
 
-    # ------------------------------------------------------------------ API
     @staticmethod
     def _aislar(cb):
         """Envuelve un callback para que un error de la UI no aborte el benchmark."""
@@ -852,7 +805,6 @@ class MicroStressTest:
         self._hilo.join(timeout)
         return not self._hilo.is_alive()
 
-    # -------------------------------------------------------------- workers
     @staticmethod
     def _worker_cpu() -> float:
         """Compatibilidad: carga matemática corta en el hilo actual."""
@@ -883,7 +835,7 @@ class MicroStressTest:
 
     def _leer_worker(self, idx: int, proc: subprocess.Popen) -> None:
         try:
-            for linea in proc.stdout:          # termina en EOF
+            for linea in proc.stdout:
                 try:
                     self._ops[idx] = int(linea.strip())
                 except ValueError:
@@ -913,7 +865,6 @@ class MicroStressTest:
             while not self._stop.is_set() and time.perf_counter() < fin:
                 t_ini = time.perf_counter()
                 while (time.perf_counter() - t_ini) < t_activo and not self._stop.is_set():
-                    # Bloque C OpenSSL libre de GIL (~1.5 ms) + validación FPU
                     hashlib.pbkdf2_hmac("sha256", payload, salt, 6000)
                     acc = math.sqrt(acc * 999_983.0 + 1.777_777) % 1_000_000.0
                     self._ops[idx] += 6000
@@ -947,7 +898,6 @@ class MicroStressTest:
         vivos = sum(1 for p in self._procs if p.poll() is None)
         return vivos + sum(1 for h in self._hilos_carga if h.is_alive())
 
-    # ------------------------------------------------------------ ejecución
     @staticmethod
     def _leer_temperatura() -> float | None:
         lector = getattr(psutil, "sensors_temperatures", None)
@@ -967,9 +917,6 @@ class MicroStressTest:
         motivo: str | None = None
         try:
             self._ops = [0] * self.n_workers
-            # Por defecto ('auto' o 'hilos') usa el kernel C libre de GIL (pbkdf2_hmac),
-            # que escala al ~90%+ en todos los núcleos sin artefactos de tuberías stdout
-            # y funciona idéntico en script Python y en ejecutable PyInstaller (.exe).
             if self.modo == "procesos" and not getattr(sys, "frozen", False):
                 try:
                     self._lanzar_procesos()
@@ -989,7 +936,6 @@ class MicroStressTest:
                 + "─" * 64 + "\n"
             )
 
-            # Breve pre-cebado (120 ms) para que los workers alcancen régimen de ~90%
             psutil.cpu_percent(interval=None)
             self._stop.wait(0.12)
             psutil.cpu_percent(interval=None)
@@ -1009,10 +955,9 @@ class MicroStressTest:
                 elapsed = ahora - t0
                 ops_tot = sum(self._ops)
                 dt = max(ahora - t_prev, 1e-6)
-                thr_raw = max(0.0, (ops_tot - ops_prev) / dt / 1e6)  # Mops/s reales
+                thr_raw = max(0.0, (ops_tot - ops_prev) / dt / 1e6)
                 t_prev, ops_prev = ahora, ops_tot
 
-                # Suavizado EMA para filtrar jitter de planificador de Windows (±15 ms)
                 thr_suavizado = thr_raw if thr_suavizado <= 0.0 else (0.65 * thr_raw + 0.35 * thr_suavizado)
 
                 freq = psutil.cpu_freq()
@@ -1028,7 +973,6 @@ class MicroStressTest:
                 muestras_ops.append(round(thr_suavizado, 3))
 
                 n_m = len(muestras_ops)
-                # Establecer línea base con las muestras 2 a 4 (ya en régimen estable)
                 if 2 <= n_m <= 4 and thr_suavizado > 0:
                     base_samples.append(thr_suavizado)
                     base_thr = sum(base_samples) / len(base_samples)
@@ -1039,7 +983,6 @@ class MicroStressTest:
                 if n_m >= 3 and base_thr > 0:
                     caida = max(0.0, (base_thr - thr_suavizado) / base_thr * 100.0)
 
-                # Clasificación determinista sin falsos positivos ("alucinaciones")
                 if n_m == 1:
                     estado = "CARGANDO"
                 else:
@@ -1114,7 +1057,7 @@ class MicroStressTest:
             })
             if cancelado:
                 resultado["diagnostico"] = "⏹  TEST CANCELADO POR EL OPERADOR\n" + resultado.get("diagnostico", "")
-        except Exception as exc:                       # nunca dejar la UI esperando
+        except Exception as exc:
             self._stop.set()
             self._detener_workers()
             self._hilos_carga.clear()
@@ -1125,14 +1068,12 @@ class MicroStressTest:
         self.resultado = resultado
         self._cb_resultado_seguro(resultado)
 
-    # ------------------------------------------------------------------
     def _cb_resultado_seguro(self, resultado: dict) -> None:
         try:
             self._cb_res(resultado)
         except Exception as exc:
             print(f"[MicroStressTest] Error en callback_resultado: {exc}")
 
-    # ------------------------------------------------------------------
     @staticmethod
     def _barra_progreso(elapsed: float, total: float, ancho: int = 20) -> str:
         relleno = int((min(elapsed, total) / total) * ancho)
@@ -1149,7 +1090,6 @@ class MicroStressTest:
         fin = sum(datos[-k:]) / k
         return max(0.0, (ini - fin) / ini * 100) if ini > 0 else 0.0
 
-    # ------------------------------------------------------------------
     def _analizar(self, muestras_freq: list[float], muestras_uso: list[float],
                   muestras_ops: list[float] | None = None) -> dict:
         muestras_ops = list(muestras_ops or [])

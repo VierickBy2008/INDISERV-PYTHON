@@ -15,12 +15,8 @@ from typing import Callable
 
 import customtkinter as ctk
 
-# Intervalo nativo de 60 FPS (~16.6 ms -> 16 ms en Tkinter)
 FRAME_MS: int = 16
 
-# ---------------------------------------------------------------------------
-# Paleta (dark-tech, alineada con core/hardware_map.py)
-# ---------------------------------------------------------------------------
 P = {
     "bg":          "#0b0f19",
     "surface":     "#0f172a",
@@ -50,7 +46,6 @@ P = {
     "info_bg":     "#072a3d",
 }
 
-# Tipografías
 F_H1      = ("Segoe UI Semibold", 22)
 F_H2      = ("Segoe UI Semibold", 17)
 F_H3      = ("Segoe UI Semibold", 13)
@@ -60,7 +55,6 @@ F_CAPTION = ("Segoe UI", 10)
 F_MONO    = ("Consolas", 11)
 F_METRIC  = ("Segoe UI Semibold", 20)
 
-# Variantes de botón → (fg, hover, texto)
 _VARIANTES = {
     "primario":   (P["primario"], P["primario_h"], "#04140e"),
     "azul":       (P["azul"], P["azul_h"], "#ffffff"),
@@ -71,7 +65,6 @@ _VARIANTES = {
     "fantasma":   ("transparent", P["card_alt"], P["texto_sec"]),
 }
 
-# Badges → (fondo, texto)
 _BADGES = {
     "ok":     (P["ok_bg"], P["primario"]),
     "warn":   (P["warn_bg"], P["ambar"]),
@@ -210,9 +203,6 @@ def _adjuntar_hover_borde_60fps(widget, color_base: str, color_hover: str, pasos
         pass
 
 
-# ---------------------------------------------------------------------------
-# Fábricas con micro-interacciones a 60 FPS
-# ---------------------------------------------------------------------------
 def boton(parent, texto: str, comando: Callable | None = None,
           variante: str = "primario", **kw) -> ctk.CTkButton:
     fg, hover, txt = _VARIANTES.get(variante, _VARIANTES["primario"])
@@ -225,7 +215,6 @@ def boton(parent, texto: str, comando: Callable | None = None,
     opciones.update(kw)
     btn = ctk.CTkButton(parent, **opciones)
 
-    # Transición cromática de fondo a 60 FPS en hover (cuando el fondo no es transparente)
     if fg != "transparent":
         est = {"t": 0.0, "target": 0.0, "after": None}
 
@@ -359,9 +348,6 @@ def estilo_textbox() -> dict:
     )
 
 
-# ---------------------------------------------------------------------------
-# Componentes animados a 60 FPS
-# ---------------------------------------------------------------------------
 class Badge(ctk.CTkLabel):
     """Pastilla de estado: ok / warn / err / info / neutro / violeta."""
 
@@ -629,9 +615,6 @@ class Sparkline(tk.Canvas):
                              fill=s["color"], outline="", tags="serie")
 
 
-# ---------------------------------------------------------------------------
-# Ventanas emergentes y notificaciones a 60 FPS
-# ---------------------------------------------------------------------------
 def fade_in(ventana, duracion_ms: int = 224, pasos: int = 14):
     """Aparición gradual a 60 FPS (16 ms por frame) con curva ease-out."""
     try:

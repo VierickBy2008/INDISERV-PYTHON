@@ -35,24 +35,19 @@ def abrir_gemelo_digital(id_ticket: str, root_widget=None) -> str:
     -------
     str — La URL completa generada (útil para mostrarla en la UI).
     """
-    # Sanitizar ticket: eliminar espacios que podrían romper la búsqueda en BD
     ticket_sanitizado = quote(str(id_ticket).strip())
 
-    # URL de producción (nunca localhost) + parámetro de ticket URL-encoded
     enlace_completo = f"{WEB_VIEWER_URL}/?ticket={ticket_sanitizado}"
 
     print(f"\n[Gemelo Digital] Enlace Público Generado: {enlace_completo}")
 
-    # ── 1. Abrir en el navegador predeterminado del sistema ─────────────
     try:
         webbrowser.open(enlace_completo)
     except Exception as exc:
         print(f"[Gemelo Digital] Error al abrir el navegador: {exc}")
 
-    # ── 2. Copiar al portapapeles ────────────────────────────────────────
     copiado = False
 
-    # Intento primario: portapapeles nativo de la GUI (Tkinter/CTk)
     if root_widget is not None:
         try:
             root_widget.clipboard_clear()
@@ -63,7 +58,6 @@ def abrir_gemelo_digital(id_ticket: str, root_widget=None) -> str:
         except Exception as exc:
             print(f"[Gemelo Digital] Error copiando con clipboard de GUI: {exc}")
 
-    # Intento secundario: pyperclip (si está disponible)
     if not copiado:
         try:
             import pyperclip

@@ -76,9 +76,6 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green")
 
 
-# ---------------------------------------------------------------------------
-# Constantes de estilo (preservadas para compatibilidad)
-# ---------------------------------------------------------------------------
 FONT_TITLE  = ("Segoe UI Semibold", 16)
 FONT_LABEL  = ("Segoe UI", 13)
 FONT_SMALL  = ("Segoe UI", 11)
@@ -89,9 +86,6 @@ COLOR_DIM   = P["neutro"]
 COLOR_CYAN  = P["cian"]
 
 
-# ---------------------------------------------------------------------------
-# Clase principal
-# ---------------------------------------------------------------------------
 class AppIndiServ(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -100,7 +94,6 @@ class AppIndiServ(ctk.CTk):
         self.resizable(False, False)
         self.configure(fg_color=P["bg"])
 
-        # Fondo visual
         self.bg_label = None
         fondo_path = _resource_path(os.path.join("assets", "fondo.jpg"))
         if os.path.exists(fondo_path):
@@ -111,11 +104,9 @@ class AppIndiServ(ctk.CTk):
             except Exception:
                 pass
 
-        # Estado de sesión
         self.dni_usuario_activo: str | None = None
         self.hardware_detectado: dict | None = None
 
-        # Estado del árbol de diagnóstico
         self.arbol_fase = 0
         self.arbol_rama = -1
         self.arbol_paso = 0
@@ -125,16 +116,12 @@ class AppIndiServ(ctk.CTk):
         self.ticket_sincronizado: bool = False
         self._vista_retorno_mapa = None
 
-        # Instancia activa de stress test (para cancelación limpia)
         self._stress_actual: MicroStressTest | None = None
         self._ultimo_resultado_stress: dict | None = None
 
         self.protocol("WM_DELETE_WINDOW", self._al_cerrar_ventana)
         self.pantalla_login()
 
-    # =========================================================================
-    # UTILIDADES GENERALES
-    # =========================================================================
     def _al_cerrar_ventana(self):
         if self._stress_actual and self._stress_actual.activo:
             try:
@@ -254,9 +241,6 @@ class AppIndiServ(ctk.CTk):
 
         return header
 
-    # =========================================================================
-    # PANTALLA 1: PORTAL DE SEGURIDAD (LOGIN)
-    # =========================================================================
     def pantalla_login(self):
         self.limpiar_panel()
 
@@ -267,7 +251,6 @@ class AppIndiServ(ctk.CTk):
         animar_entrada_panel(card)
         card.pack_propagate(False)
 
-        # Banda superior de identidad
         top = ctk.CTkFrame(card, fg_color=P["surface"], corner_radius=12)
         top.pack(fill="x", padx=18, pady=(18, 10))
 
@@ -288,7 +271,6 @@ class AppIndiServ(ctk.CTk):
             font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
         ).pack(fill="x", padx=14, pady=(0, 12))
 
-        # Campos con etiquetas claras
         cuerpo = ctk.CTkFrame(card, fg_color="transparent")
         cuerpo.pack(fill="x", padx=26, pady=4)
 
@@ -427,9 +409,6 @@ class AppIndiServ(ctk.CTk):
             }
         self.after(0, self.pantalla_dashboard)
 
-    # =========================================================================
-    # PANTALLA 1.5: REGISTRO DE CUENTA
-    # =========================================================================
     def pantalla_registro(self):
         self.limpiar_panel()
 
@@ -469,7 +448,6 @@ class AppIndiServ(ctk.CTk):
         self.reg_pass = entrada(cuerpo, "Contraseña segura", show="*", width=390)
         self.reg_pass.pack(fill="x", pady=(0, 4))
 
-        # Aceptación obligatoria de Política de Privacidad y Términos
         fila_legal_reg = ctk.CTkFrame(cuerpo, fg_color="transparent")
         fila_legal_reg.pack(fill="x", pady=(8, 2))
         self.reg_acepta_terminos = ctk.BooleanVar(value=False)
@@ -530,9 +508,6 @@ class AppIndiServ(ctk.CTk):
         else:
             self.lbl_reg_error.configure(text="✖ Error de conexión al registrar. Intente luego.")
 
-    # =========================================================================
-    # PANTALLA 2: DASHBOARD TÉCNICO CON PESTAÑAS MODULARES DIDÁCTICAS
-    # =========================================================================
     def pantalla_dashboard(self):
         self.limpiar_panel()
         hw = self.hardware_detectado or {}
@@ -551,7 +526,6 @@ class AppIndiServ(ctk.CTk):
         animar_entrada_panel(frame)
         frame.pack_propagate(False)
 
-        # ---- Barra superior de estado --------------------------------------
         topbar = ctk.CTkFrame(
             frame, fg_color=P["surface"], corner_radius=10,
             border_width=1, border_color=P["borde"]
@@ -581,7 +555,6 @@ class AppIndiServ(ctk.CTk):
         boton(der, "Cerrar Sesión", self.pantalla_login,
               variante="peligro", width=118, height=30, font=F_SMALL).pack(side="left")
 
-        # ---- TabView con diseño unificado ----------------------------------
         self.tabs_dashboard = ctk.CTkTabview(
             frame, width=922, height=455, **estilo_tabview()
         )
@@ -596,7 +569,6 @@ class AppIndiServ(ctk.CTk):
         self._tab_discos(self.tabs_dashboard.tab("Discos"), hw)
         self._tab_red(self.tabs_dashboard.tab("Red"), hw)
 
-        # ---- Panel inferior de herramientas y diagnósticos -----------------
         dock = ctk.CTkFrame(
             frame, fg_color=P["surface"], corner_radius=10,
             border_width=1, border_color=P["borde"]
@@ -651,7 +623,6 @@ class AppIndiServ(ctk.CTk):
 
         threading.Thread(target=_bg, daemon=True).start()
 
-    # ---- Helpers de pestañas ------------------------------------------------
     def _textbox(self, parent, height=360) -> ctk.CTkTextbox:
         """Crea y retorna un CTkTextbox estilizado."""
         tb = ctk.CTkTextbox(parent, width=820, height=height, **estilo_textbox())
@@ -677,13 +648,11 @@ class AppIndiServ(ctk.CTk):
         if badge:
             Badge(f, badge[0], tipo=badge[1]).pack(side="right")
 
-    # -- TAB: GENERAL ---------------------------------------------------------
     def _tab_general(self, tab, hw: dict):
         score = calcular_health_score(hw)
         refrig = _inferir_refrigeracion(hw)
         evidencias = EvaluadorTelemetria.evaluar(hw)
 
-        # Fila superior de KPIs
         kpis = ctk.CTkFrame(tab, fg_color="transparent")
         kpis.pack(fill="x", padx=8, pady=(6, 6))
         for col in range(4):
@@ -715,7 +684,6 @@ class AppIndiServ(ctk.CTk):
             color=P["primario"] if n_ev == 0 else P["ambar"]
         ).grid(row=0, column=3, padx=4, sticky="nsew")
 
-        # Dos tarjetas inferiores: Placa Base / BIOS y Diagnóstico Preventivo
         cuerpo = ctk.CTkFrame(tab, fg_color="transparent")
         cuerpo.pack(fill="both", expand=True, padx=8, pady=4)
         cuerpo.grid_columnconfigure(0, weight=3)
@@ -825,7 +793,6 @@ class AppIndiServ(ctk.CTk):
                     variante="ambar", width=92, height=26, font=F_CAPTION
                 ).pack(side="right", padx=6)
 
-    # -- TAB: CPU / RAM -------------------------------------------------------
     def _tab_cpu_ram(self, tab, hw: dict):
         cont = ctk.CTkFrame(tab, fg_color="transparent")
         cont.pack(fill="both", expand=True, padx=6, pady=4)
@@ -833,7 +800,6 @@ class AppIndiServ(ctk.CTk):
         cont.grid_columnconfigure(1, weight=1, uniform="cr")
         cont.grid_rowconfigure(0, weight=1)
 
-        # Panel CPU
         c_cpu = tarjeta(cont)
         c_cpu.grid(row=0, column=0, padx=(0, 5), sticky="nsew")
 
@@ -879,7 +845,6 @@ class AppIndiServ(ctk.CTk):
                 warn=75, err=92, alto_barra=6
             ).pack(fill="x")
 
-        # Panel RAM
         c_ram = tarjeta(cont)
         c_ram.grid(row=0, column=1, padx=(5, 0), sticky="nsew")
 
@@ -942,7 +907,6 @@ class AppIndiServ(ctk.CTk):
                 font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
             ).pack(fill="x", padx=10, pady=(0, 6))
 
-    # -- TAB: GRÁFICOS --------------------------------------------------------
     def _tab_graficos(self, tab, hw: dict):
         gpus = hw.get("gpus", []) or []
         scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
@@ -985,7 +949,6 @@ class AppIndiServ(ctk.CTk):
                 f"{vram:.0f} MB", warn=101, err=101
             ).pack(fill="x", padx=14, pady=(6, 12))
 
-    # -- TAB: DISCOS ----------------------------------------------------------
     def _tab_discos(self, tab, hw: dict):
         fisicos = hw.get("discos_fisicos", []) or []
         partics = hw.get("particiones", []) or []
@@ -1062,7 +1025,6 @@ class AppIndiServ(ctk.CTk):
                 warn=80, err=90
             ).pack(fill="x", padx=10, pady=(2, 8))
 
-    # -- TAB: RED -------------------------------------------------------------
     def _tab_red(self, tab, hw: dict):
         adaptador = str(hw.get("adaptador_activo", "Ninguno"))
         ip = str(hw.get("ip_local", "N/A"))
@@ -1126,9 +1088,6 @@ class AppIndiServ(ctk.CTk):
             variante="neutro", width=220, height=32, font=F_SMALL
         ).pack(side="left")
 
-    # =========================================================================
-    # PANTALLA 4: DIAGNÓSTICO MULTISÍNTOMA (Fase 2 — Rediseñado con tarjetas)
-    # =========================================================================
     def pantalla_multisintoma(self):
         """Selector de síntomas múltiples con filtro y ranking interactivo."""
         self.limpiar_panel()
@@ -1149,7 +1108,6 @@ class AppIndiServ(ctk.CTk):
             cmd_volver=self.pantalla_dashboard,
         )
 
-        # Layout en dos columnas: selector izquierda, ranking derecha
         cuerpo = ctk.CTkFrame(frame, fg_color="transparent")
         cuerpo.pack(fill="both", expand=True, padx=14, pady=4)
         cuerpo.grid_columnconfigure(0, weight=5)
@@ -1198,7 +1156,6 @@ class AppIndiServ(ctk.CTk):
             self._limpiar_checks, variante="neutro", width=110, height=36
         ).pack(side="left")
 
-        # Columna derecha: Ranking visual + textbox de respaldo
         col_der = tarjeta(cuerpo)
         col_der.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
         overline(col_der, "2. Ranking de Causas Probables y Acción Directa", color=P["primario"]).pack(
@@ -1258,7 +1215,6 @@ class AppIndiServ(ctk.CTk):
 
         resultados = MatrizSintomas.calcular_probabilidades(indices_sel)
 
-        # Renderizar tarjetas interactivas
         if hasattr(self, "_cards_multisintoma"):
             for idx, r in enumerate(resultados[:5], 1):
                 card_r = ctk.CTkFrame(
@@ -1293,7 +1249,6 @@ class AppIndiServ(ctk.CTk):
                     width=130, height=28, font=F_CAPTION
                 ).pack(side="right", padx=(6, 0))
 
-        # Texto resumen compatible
         lineas = [
             f"  Síntomas seleccionados: {len(indices_sel)}",
             "  ─────────────────────────────────────────────────────────────",
@@ -1316,9 +1271,6 @@ class AppIndiServ(ctk.CTk):
         relleno = int((pct / 100) * ancho)
         return "[" + "█" * relleno + "░" * (ancho - relleno) + "]"
 
-    # =========================================================================
-    # PANTALLA 5: BUSCADOR ASISTIDO INTELIGENTE CON EJECUCIÓN DIRECTA
-    # =========================================================================
     def pantalla_buscador(self):
         """
         Buscador en lenguaje natural con:
@@ -1346,7 +1298,6 @@ class AppIndiServ(ctk.CTk):
             cmd_volver=self.pantalla_dashboard,
         )
 
-        # ---- Barra de búsqueda + selector de catálogo -----------------------
         barra_busq = tarjeta(frame)
         barra_busq.pack(fill="x", padx=14, pady=(0, 6))
 
@@ -1371,7 +1322,6 @@ class AppIndiServ(ctk.CTk):
             self._diagnosticar_directo_desde_entrada, variante="primario", width=180, height=38
         ).pack(side="left")
 
-        # Chips rápidos + ComboBox estilizado con todos los casos del catálogo
         fila_chips = ctk.CTkFrame(barra_busq, fg_color="transparent")
         fila_chips.pack(fill="x", padx=12, pady=(2, 10))
 
@@ -1396,7 +1346,6 @@ class AppIndiServ(ctk.CTk):
                 variante="fantasma", width=78, height=24, font=F_CAPTION
             ).pack(side="left", padx=2)
 
-        # Selector directo de cualquier hoja del catálogo (armonizado con tema oscuro)
         opciones_catalogo = [
             f"#{cod} · {d['categoria']} — {d['subcategoria']}"
             for cod, d in sorted(CATALOGO_DICTAMENES.items())
@@ -1412,14 +1361,12 @@ class AppIndiServ(ctk.CTk):
         self._combo_catalogo.set("Catálogo directo (26 casos)…")
         self._combo_catalogo.pack(side="right", padx=(6, 0))
 
-        # ---- Cuerpo dividido: Coincidencias (izq) | Dictamen + Acciones (der)
         cuerpo = ctk.CTkFrame(frame, fg_color="transparent")
         cuerpo.pack(fill="both", expand=True, padx=14, pady=(0, 10))
         cuerpo.grid_columnconfigure(0, weight=5)
         cuerpo.grid_columnconfigure(1, weight=6)
         cuerpo.grid_rowconfigure(0, weight=1)
 
-        # Columna izquierda: tarjetas de resultados + textbox de trazabilidad
         col_izq = tarjeta(cuerpo)
         col_izq.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
 
@@ -1442,7 +1389,6 @@ class AppIndiServ(ctk.CTk):
             "El buscador evalúa las 26 hojas del árbol y la telemetría actual."
         )
 
-        # Columna derecha: Dictamen ejecutado y acciones directas
         col_der = tarjeta(cuerpo)
         col_der.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
 
@@ -1512,7 +1458,6 @@ class AppIndiServ(ctk.CTk):
             self._insertar_y_bloquear(self._res_busqueda, "\n".join(lineas))
             return
 
-        # Renderizar tarjetas interactivas con botones de acción directa
         if hasattr(self, "_scroll_resultados_busq"):
             for i, r in enumerate(resultados, 1):
                 cod = r["codigo"]
@@ -1570,7 +1515,6 @@ class AppIndiServ(ctk.CTk):
 
         self._insertar_y_bloquear(self._res_busqueda, "\n".join(lineas))
 
-        # Ejecutar automáticamente el mejor resultado para ofrecer acciones directas
         if auto_ejecutar and resultados:
             self.ejecutar_diagnostico_directo(
                 resultados[0]["codigo"], permanecer_en_buscador=True
@@ -1657,7 +1601,6 @@ class AppIndiServ(ctk.CTk):
             f"{df['solucion']}\n\nTicket activo: {ticket}  ·  Código Interno: #{df['codigo']}"
         )
 
-        # Botonera de ejecución directa (Mapa 2D, Gemelo 3D, Reporte, Árbol, Stress)
         overline(self._panel_dictamen_busq, "Acciones Directas Disponibles").pack(
             anchor="w", padx=12, pady=(0, 4)
         )
@@ -1699,9 +1642,6 @@ class AppIndiServ(ctk.CTk):
                 variante="violeta", width=220, height=30, font=F_CAPTION
             ).pack(side="left")
 
-    # =========================================================================
-    # PANTALLA 6: MICRO-STRESS TEST CPU SEGURO Y FUNCIONAL
-    # =========================================================================
     def pantalla_stress_test(self):
         """Benchmark CPU multihilo con progreso animado, sparkline y cancelación segura."""
         self.limpiar_panel()
@@ -1727,7 +1667,6 @@ class AppIndiServ(ctk.CTk):
             cmd_volver=self.pantalla_dashboard,
         )
 
-        # ---- Fila de KPIs en vivo ------------------------------------------
         kpis = ctk.CTkFrame(frame, fg_color="transparent")
         kpis.pack(fill="x", padx=14, pady=(0, 6))
         for c in range(4):
@@ -1757,7 +1696,6 @@ class AppIndiServ(ctk.CTk):
         )
         self._kpi_estado_st.grid(row=0, column=3, padx=4, sticky="nsew")
 
-        # ---- Barra de progreso animada + controles de duración --------------
         ctrl_card = tarjeta(frame)
         ctrl_card.pack(fill="x", padx=14, pady=(0, 6))
 
@@ -1788,7 +1726,6 @@ class AppIndiServ(ctk.CTk):
         )
         self._barra_stress.pack(fill="x", padx=14, pady=(2, 10))
 
-        # ---- Cuerpo: Sparkline en vivo (izq) + Consola de telemetría (der) --
         cuerpo = ctk.CTkFrame(frame, fg_color="transparent")
         cuerpo.pack(fill="both", expand=True, padx=14, pady=(0, 6))
         cuerpo.grid_columnconfigure(0, weight=4)
@@ -1837,7 +1774,6 @@ class AppIndiServ(ctk.CTk):
             "La interfaz permanecerá 100% responsiva y puede cancelar en cualquier momento."
         )
 
-        # ---- Botonera inferior ---------------------------------------------
         btn_row = ctk.CTkFrame(frame, fg_color="transparent")
         btn_row.pack(pady=(2, 10))
 
@@ -2019,9 +1955,6 @@ class AppIndiServ(ctk.CTk):
         if hasattr(self, "_btn_stress") and self._btn_stress.winfo_exists():
             self._btn_stress.configure(state="normal", text="▶  Reiniciar Test")
 
-    # =========================================================================
-    # PANTALLA 3: ASISTENTE INFERENCIAL (ÁRBOL DE DIAGNÓSTICO)
-    # =========================================================================
     def iniciar_diagnostico(self):
         self.arbol_fase = 0
         self.arbol_rama = -1
@@ -2059,7 +1992,6 @@ class AppIndiServ(ctk.CTk):
             texto_volver="← Dashboard",
         )
 
-        # FASE 0: Selección del síntoma inicial (8 ramas en grilla de tarjetas)
         if self.arbol_fase == 0:
             sub = tarjeta(frame)
             sub.pack(fill="both", expand=True, padx=14, pady=(2, 12))
@@ -2100,13 +2032,11 @@ class AppIndiServ(ctk.CTk):
                     variante="primario", height=32, font=F_SMALL
                 ).pack(fill="x", padx=12, pady=(0, 10))
 
-        # FASE 1: Preguntas del árbol
         elif self.arbol_fase == 1:
             cuerpo = tarjeta(frame)
             cuerpo.pack(fill="both", expand=True, padx=14, pady=(2, 12))
             self.renderizar_paso_rama(cuerpo)
 
-        # FASE 2: Dictamen final
         elif self.arbol_fase == 2:
             df = self.dictamen_final or obtener_dictamen(101)
             ticket = self._asegurar_ticket()
@@ -2351,9 +2281,6 @@ class AppIndiServ(ctk.CTk):
         )
         self.pantalla_diagnostico()
 
-    # =========================================================================
-    # PANTALLA: MAPA VISUAL DE HARDWARE (Fase 3)
-    # =========================================================================
     def _abrir_mapa_desde_vista(self, categoria_afectada: str, vista_retorno):
         self._vista_retorno_mapa = vista_retorno
         self.pantalla_hardware_map(categoria_afectada)
@@ -2409,9 +2336,6 @@ class AppIndiServ(ctk.CTk):
             cmd_visor_3d=self.abrir_visor_3d,
         )
 
-    # =========================================================================
-    # VISOR 3D WEB / GEMELO DIGITAL (Fase 3 Extended)
-    # =========================================================================
     def abrir_visor_3d(self, id_ticket: str | None = None):
         """
         Dispara el Gemelo Digital 3D en el navegador web pasando el id_ticket real.
@@ -2442,7 +2366,6 @@ class AppIndiServ(ctk.CTk):
 
         hilo_sync = threading.Thread(target=_sync_inmediato, daemon=True)
         hilo_sync.start()
-        # Esperar hasta 4s a que el upsert en Supabase concluya antes de abrir el navegador
         hilo_sync.join(timeout=4.0)
 
         enlace_completo = abrir_gemelo_digital(id_ticket, root_widget=self)
@@ -2503,16 +2426,12 @@ class AppIndiServ(ctk.CTk):
         boton(btn_box, "Cerrar", v.destroy,
               variante="neutro", width=100, height=34, font=F_SMALL).pack(side="left", padx=6)
 
-    # =========================================================================
-    # EXPORTACIÓN DUAL Y SINCRONIZACIÓN A SUPABASE
-    # =========================================================================
     def guardar_reporte_final(self, permanecer: bool = False) -> tuple[str, str]:
         """Exporta el reporte en TXT y JSON, registra bitácora y sincroniza en la nube."""
         df = self.dictamen_final or obtener_dictamen(101)
         hw = self.hardware_detectado or {}
         ticket_id = self._asegurar_ticket()
 
-        # 1. Exportación Técnica Dual: TXT
         nombre_txt = f"Reporte_Diagnostico_{ticket_id}.txt"
         with open(nombre_txt, "w", encoding="utf-8") as f:
             f.write("================================================================\n")
@@ -2539,7 +2458,6 @@ class AppIndiServ(ctk.CTk):
             f.write(f"Código Interno: #{df['codigo']}\n")
             f.write("================================================================\n")
 
-        # 2. Exportación Técnica Dual: Estructurado (JSON)
         nombre_json = f"Reporte_Diagnostico_{ticket_id}.json"
         datos_json = {
             "ticket_id": ticket_id,
@@ -2550,7 +2468,6 @@ class AppIndiServ(ctk.CTk):
         with open(nombre_json, "w", encoding="utf-8") as f:
             json.dump(datos_json, f, indent=4, ensure_ascii=False)
 
-        # 3. Sincronización en la nube (Fase 3) — hilo daemon
         def tarea_nube():
             exito_ticket = CloudGateway.subir_ticket(ticket_id, self.dni_usuario_activo, hw, df)
             if exito_ticket:
@@ -2574,9 +2491,6 @@ class AppIndiServ(ctk.CTk):
         )
         return nombre_txt, nombre_json
 
-    # =========================================================================
-    # MODAL 1: POLÍTICA DE PRIVACIDAD Y TÉRMINOS DE USO
-    # =========================================================================
     def modal_politica_privacidad(self, var_aceptar: ctk.BooleanVar | None = None):
         """Muestra la Política de Privacidad y Términos y Condiciones completos."""
         v = ctk.CTkToplevel(self)
@@ -2616,9 +2530,6 @@ class AppIndiServ(ctk.CTk):
             variante="neutro", width=120, height=34, font=F_SMALL
         ).pack(side="left", padx=6)
 
-    # =========================================================================
-    # MODAL 3: MIS TICKETS PRIVADOS EN LA NUBE (SOLO CUENTA ACTIVA)
-    # =========================================================================
     def modal_mis_tickets(self):
         v = ctk.CTkToplevel(self)
         estilizar_toplevel(v, self, "Mis Tickets Privados en la Nube", 660, 460)
@@ -2734,9 +2645,6 @@ class AppIndiServ(ctk.CTk):
             variante="neutro", width=110, height=32, font=F_SMALL
         ).pack(side="left", padx=6)
 
-    # =========================================================================
-    # MODAL 2: BUZÓN DE SUGERENCIAS
-    # =========================================================================
     def modal_sugerencias(self):
         v = ctk.CTkToplevel(self)
         estilizar_toplevel(v, self, "Buzón de Soporte y Sugerencias", 560, 420)
@@ -2794,7 +2702,6 @@ class AppIndiServ(ctk.CTk):
         )
 
 
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     app = AppIndiServ()
     app.mainloop()

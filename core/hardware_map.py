@@ -25,38 +25,29 @@ import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable
 
-# ---------------------------------------------------------------------------
-# Paleta de colores dark-tech
-# ---------------------------------------------------------------------------
 C = {
-    # Fondos
-    "bg_outer":     "#0b0f19",   # Fondo contenedor exterior
-    "pcb":          "#1a2235",   # PCB principal de la placa
-    "pcb_edge":     "#0f172a",   # Borde exterior del PCB
-    "pcb_border":   "#334155",   # Borde metálico sutil
-    "bg_panel":     "#0f1729",   # Panel de info lateral
+    "bg_outer":     "#0b0f19",
+    "pcb":          "#1a2235",
+    "pcb_edge":     "#0f172a",
+    "pcb_border":   "#334155",
+    "bg_panel":     "#0f1729",
 
-    # Componentes base
-    "comp_base":    "#1e3a5f",   # Relleno neutro de componentes
-    "comp_border":  "#2d5a8e",   # Borde neutro
+    "comp_base":    "#1e3a5f",
+    "comp_border":  "#2d5a8e",
 
-    # Estados
-    "ok":           "#10b981",   # Verde esmeralda — óptimo
-    "ok_dim":       "#064e3b",   # Verde oscuro — fill óptimo
-    "warn":         "#f59e0b",   # Naranja ámbar — advertencia
-    "warn_dim":     "#451a03",   # Fill advertencia
-    "alert":        "#ef4444",   # Rojo — alerta crítica
-    "alert_dim":    "#450a0a",   # Fill alerta
+    "ok":           "#10b981",
+    "ok_dim":       "#064e3b",
+    "warn":         "#f59e0b",
+    "warn_dim":     "#451a03",
+    "alert":        "#ef4444",
+    "alert_dim":    "#450a0a",
 
-    # Pistas PCB decorativas
     "trace":        "#1e3a5f",
     "trace_glow":   "#0e2d4e",
 
-    # Tornillos de montaje
-    "screw_ring":   "#b45309",   # Anillo dorado
-    "screw_center": "#fbbf24",   # Centro dorado brillante
+    "screw_ring":   "#b45309",
+    "screw_center": "#fbbf24",
 
-    # Texto
     "text_primary":  "#e2e8f0",
     "text_secondary":"#94a3b8",
     "text_dim":      "#475569",
@@ -65,41 +56,31 @@ C = {
     "text_warn":     "#f59e0b",
     "text_alert":    "#ef4444",
 
-    # PSU / bahía
     "psu_fill":      "#161f30",
     "psu_border":    "#4b5563",
     "bay_fill":      "#0f1a2a",
 
-    # GPU
     "gpu_fill":      "#1a2a45",
     "gpu_fan":       "#253550",
 
-    # CPU
     "cpu_socket":    "#1e2d42",
     "cpu_lid":       "#c0c0c0",
 
-    # RAM slot
     "ram_slot":      "#1a3050",
     "ram_clip":      "#2563eb",
 
-    # M.2
     "m2_fill":       "#1a2a3a",
     "m2_hs":         "#243040",
 
-    # Botones
     "btn_primary":   "#1d4ed8",
     "btn_primary_h": "#1e40af",
     "btn_secondary": "#334155",
     "btn_secondary_h":"#475569",
 
-    # Tooltip
     "tooltip_bg":    "#0f172a",
     "tooltip_border":"#334155",
 }
 
-# ---------------------------------------------------------------------------
-# Mapeo de categorías de diagnóstico → claves de componente
-# ---------------------------------------------------------------------------
 DIAG_TO_COMP = {
     "Fuente de Poder":              "PSU",
     "CPU / Enfriamiento Térmico":   "CPU",
@@ -120,9 +101,6 @@ DIAG_TO_COMP = {
 }
 
 
-# ===========================================================================
-# Clase principal
-# ===========================================================================
 class MotherboardMapView:
     """
     Renderiza el mapa esquemático de motherboard en un widget tk.Canvas.
@@ -136,9 +114,8 @@ class MotherboardMapView:
     cmd_visor_3d    : callable — Acción del botón "Ver Gemelo Digital 3D".
     """
 
-    # Dimensiones del canvas
-    CW = 860   # ancho
-    CH = 490   # alto
+    CW = 860
+    CH = 490
 
     def __init__(
         self,
@@ -154,24 +131,17 @@ class MotherboardMapView:
         self.cmd_volver     = cmd_volver
         self.cmd_visor_3d   = cmd_visor_3d
 
-        # Componente afectado mapeado
         self.comp_afectado  = DIAG_TO_COMP.get(categoria_diag, "")
 
-        # Estado de tooltip activo
         self._tooltip_items: list[int] = []
         self._tooltip_after: str | None = None
 
         self._build_ui()
 
-    # ------------------------------------------------------------------
-    # Construcción de la UI
-    # ------------------------------------------------------------------
     def _build_ui(self):
         """Construye el panel de resumen, el canvas y los botones."""
-        # ── Panel de resumen superior ──────────────────────────────────
         self._build_summary_panel()
 
-        # ── Canvas principal ───────────────────────────────────────────
         self.canvas = tk.Canvas(
             self.parent,
             width=self.CW,
@@ -182,7 +152,6 @@ class MotherboardMapView:
         )
         self.canvas.pack(pady=(4, 0))
 
-        # ── Renderizar el diagrama ─────────────────────────────────────
         self._draw_background()
         self._draw_pcb()
         self._draw_circuit_traces()
@@ -198,17 +167,12 @@ class MotherboardMapView:
         self._bind_hover_events()
         self._start_60fps_schematic_anim()
 
-        # ── Botones inferiores ─────────────────────────────────────────
         self._build_nav_buttons()
 
-    # ------------------------------------------------------------------
-    # Panel de resumen superior
-    # ------------------------------------------------------------------
     def _build_summary_panel(self):
         from core.hardware import calcular_health_score
         score = calcular_health_score(self.hw)
 
-        # Color del score
         if score >= 80:
             score_color = C["text_ok"]
             score_label = "Óptimo"
@@ -223,16 +187,13 @@ class MotherboardMapView:
         gpu_name  = self.hw.get("gpu_principal", "GPU no detectada")
         mb_name   = f"{self.hw.get('mb_fabricante','?')} {self.hw.get('mb_modelo','?')}"
 
-        # Marco del panel
         import customtkinter as ctk
         panel = ctk.CTkFrame(self.parent, fg_color="#0f1729", corner_radius=8)
         panel.pack(fill="x", padx=6, pady=(0, 4))
 
-        # Fila de métricas
         row = ctk.CTkFrame(panel, fg_color="transparent")
         row.pack(pady=(8, 6), padx=14, fill="x")
 
-        # — Nombre de la máquina —
         mb_frame = ctk.CTkFrame(row, fg_color="#131e30", corner_radius=6)
         mb_frame.pack(side="left", padx=(0, 8))
         ctk.CTkLabel(mb_frame, text="PLACA BASE", font=("Consolas", 9),
@@ -240,7 +201,6 @@ class MotherboardMapView:
         ctk.CTkLabel(mb_frame, text=mb_name, font=("Segoe UI", 11, "bold"),
                      text_color="#94a3b8").pack(padx=10, pady=(0, 5))
 
-        # — Salud global —
         hs_frame = ctk.CTkFrame(row, fg_color="#131e30", corner_radius=6)
         hs_frame.pack(side="left", padx=(0, 8))
         ctk.CTkLabel(hs_frame, text="SALUD GLOBAL", font=("Consolas", 9),
@@ -249,7 +209,6 @@ class MotherboardMapView:
                      font=("Segoe UI", 11, "bold"),
                      text_color=score_color).pack(padx=10, pady=(0, 5))
 
-        # — Componente en foco —
         if self.categoria:
             focus_frame = ctk.CTkFrame(row, fg_color="#1a0808", corner_radius=6)
             focus_frame.pack(side="left", padx=(0, 8))
@@ -259,7 +218,6 @@ class MotherboardMapView:
                          font=("Segoe UI", 11, "bold"),
                          text_color=C["text_alert"]).pack(padx=10, pady=(0, 5))
 
-        # — CPU rápida —
         cpu_frame = ctk.CTkFrame(row, fg_color="#131e30", corner_radius=6)
         cpu_frame.pack(side="left")
         ctk.CTkLabel(cpu_frame, text="CPU", font=("Consolas", 9),
@@ -268,9 +226,6 @@ class MotherboardMapView:
                      font=("Segoe UI", 10),
                      text_color="#94a3b8").pack(padx=10, pady=(0, 5))
 
-    # ------------------------------------------------------------------
-    # Botones de navegación
-    # ------------------------------------------------------------------
     def _build_nav_buttons(self):
         import customtkinter as ctk
         btn_frame = ctk.CTkFrame(self.parent, fg_color="transparent")
@@ -296,9 +251,6 @@ class MotherboardMapView:
             font=("Segoe UI", 12, "bold"),
         ).pack(side="left", padx=8)
 
-    # ------------------------------------------------------------------
-    # Helpers de dibujo
-    # ------------------------------------------------------------------
     def _rr(self, x1, y1, x2, y2, r=8, **kw):
         """Rectángulo con esquinas redondeadas en tk.Canvas."""
         c = self.canvas
@@ -333,34 +285,26 @@ class MotherboardMapView:
         c.create_oval(x - 10, y - 10, x + 10, y + 10, fill=C["alert"], outline="", tags="alert_badge")
         c.create_text(x, y, text="!", fill="white", font=("Segoe UI", 9, "bold"), tags="alert_badge")
 
-    # ------------------------------------------------------------------
-    # Capas de fondo
-    # ------------------------------------------------------------------
     def _draw_background(self):
         c = self.canvas
-        # Gradiente simulado con dos rectángulos
         c.create_rectangle(0, 0, self.CW, self.CH, fill=C["bg_outer"], outline="")
 
     def _draw_pcb(self):
         """Placa base PCB con borde metálico."""
         c = self.canvas
-        MX, MY = 28, 16   # margen
+        MX, MY = 28, 16
         x1, y1 = MX, MY
         x2, y2 = self.CW - MX, self.CH - MY
 
-        # Sombra exterior
         self._rr(x1 + 3, y1 + 3, x2 + 3, y2 + 3, r=10,
                  fill="#05080f", outline="", tags="pcb_shadow")
 
-        # PCB principal
         self._rr(x1, y1, x2, y2, r=10,
                  fill=C["pcb"], outline=C["pcb_border"], width=2, tags="pcb")
 
-        # Borde metálico interior (efecto bisel)
         self._rr(x1 + 4, y1 + 4, x2 - 4, y2 - 4, r=8,
                  fill="", outline=C["pcb_edge"], width=1, tags="pcb_inner")
 
-        # Label de la placa
         mb = f"{self.hw.get('mb_fabricante','?')} {self.hw.get('mb_modelo','?')}"
         c.create_text(
             self.CW // 2, y2 - 12,
@@ -372,23 +316,18 @@ class MotherboardMapView:
         """Líneas decorativas que simulan pistas de PCB."""
         c = self.canvas
         traces = [
-            # Horizontales lado izquierdo
             (46, 100, 180, 100), (46, 130, 170, 130), (46, 160, 160, 160),
             (46, 200, 150, 200), (46, 230, 140, 230),
-            # Horizontales lado derecho
             (550, 75, 690, 75), (550, 110, 680, 110),
             (550, 145, 690, 145), (550, 180, 675, 180),
-            # Verticales
             (190, 45, 190, 95), (200, 50, 200, 85),
             (560, 50, 560, 130), (600, 60, 600, 145),
-            # Conectores medios bajo GPU
             (210, 346, 510, 346), (250, 350, 470, 350),
             (95, 346, 180, 346),
         ]
         for x1, y1, x2, y2 in traces:
             c.create_line(x1, y1, x2, y2, fill=C["trace"], width=1, tags="trace")
 
-        # Nodos (uniones de pistas)
         nodes = [
             (190, 95), (200, 85), (560, 130), (600, 145),
             (170, 130), (150, 200), (360, 346), (410, 350),
@@ -403,19 +342,13 @@ class MotherboardMapView:
         positions = [(48, 32), (self.CW - 48, 32),
                      (48, self.CH - 32), (self.CW - 48, self.CH - 32)]
         for sx, sy in positions:
-            # Anillo exterior dorado
             c.create_oval(sx - 8, sy - 8, sx + 8, sy + 8,
                           fill=C["screw_ring"], outline=C["screw_center"], width=1, tags="screw")
-            # Centro del tornillo
             c.create_oval(sx - 4, sy - 4, sx + 4, sy + 4,
                           fill=C["screw_center"], outline=C["screw_ring"], width=1, tags="screw")
-            # Cruz del tornillo
             c.create_line(sx - 2, sy, sx + 2, sy, fill=C["screw_ring"], width=1, tags="screw")
             c.create_line(sx, sy - 2, sx, sy + 2, fill=C["screw_ring"], width=1, tags="screw")
 
-    # ------------------------------------------------------------------
-    # Componentes de la placa
-    # ------------------------------------------------------------------
     def _draw_io_panel(self):
         """Panel I/O trasero en borde izquierdo superior."""
         c = self.canvas
@@ -424,14 +357,13 @@ class MotherboardMapView:
 
         self._rr(x1, y1, x2, y2, r=4, fill=fill, outline=border, width=2, tags="io_panel")
 
-        # Puertos estilizados
         port_configs = [
-            (y1 + 10, "#e11d48"),   # USB-A
+            (y1 + 10, "#e11d48"),
             (y1 + 28, "#e11d48"),
-            (y1 + 46, "#1d4ed8"),   # USB 3.0
+            (y1 + 46, "#1d4ed8"),
             (y1 + 64, "#1d4ed8"),
-            (y1 + 82, "#16a34a"),   # RJ45
-            (y1 + 102, "#ca8a04"),  # Audio
+            (y1 + 82, "#16a34a"),
+            (y1 + 102, "#ca8a04"),
             (y1 + 120, "#ca8a04"),
         ]
         for py, pcol in port_configs:
@@ -441,11 +373,9 @@ class MotherboardMapView:
         c.create_text((x1 + x2) // 2, y2 - 8,
                       text="I/O", fill=tcol, font=("Consolas", 7, "bold"), tags="io_panel_lbl")
 
-        # Badge de alerta si es el afectado
         if self.comp_afectado == "IO":
             self._badge_alert(x2 - 3, y1 + 3)
 
-        # Guardar bounds para hover
         self._io_bounds = (x1, y1, x2, y2)
 
     def _draw_psu_zone(self):
@@ -454,16 +384,13 @@ class MotherboardMapView:
         fill, border, tcol = self._state_colors("PSU")
         x1, y1, x2, y2 = 44, 360, 180, 458
 
-        # Marco PSU
         self._rr(x1, y1, x2, y2, r=6, fill=C["psu_fill"], outline=C["psu_border"], width=2, tags="psu")
 
-        # Rejilla de ventilación simulada
         for gx in range(x1 + 10, x2 - 5, 9):
             c.create_line(gx, y1 + 6, gx, y2 - 6, fill="#1f2d40", width=1, tags="psu_grid")
         for gy in range(y1 + 8, y2 - 5, 7):
             c.create_line(x1 + 6, gy, x2 - 6, gy, fill="#1f2d40", width=1, tags="psu_grid")
 
-        # Conector principal 24-pin
         c.create_rectangle(x1 + 8, y1 + 10, x1 + 22, y1 + 75,
                            fill="#1a2030", outline="#374151", width=1, tags="psu_conn")
         for pi in range(6):
@@ -471,13 +398,11 @@ class MotherboardMapView:
             c.create_rectangle(x1 + 10, py_p, x1 + 20, py_p + 6,
                                fill="#374151", outline="", tags="psu_pin")
 
-        # Etiqueta
         c.create_text((x1 + x2) // 2 + 10, (y1 + y2) // 2,
                        text="PSU\nFuente",
                        fill=C["text_secondary"], font=("Consolas", 8, "bold"),
                        justify="center", tags="psu_lbl")
 
-        # Estado
         if self.comp_afectado == "PSU":
             self._rr(x1, y1, x2, y2, r=6, fill="", outline=C["alert"], width=3, tags="psu_alert")
             self._badge_alert(x2 - 8, y1 + 8)
@@ -491,7 +416,6 @@ class MotherboardMapView:
 
         self._rr(x1, y1, x2, y2, r=6, fill=C["bay_fill"], outline=C["psu_border"], width=1, tags="bay")
 
-        # Slots SATA visuales
         satas = ["SATA 1", "SATA 2", "SATA 3"]
         for i, lbl in enumerate(satas):
             sy = y1 + 10 + i * 26
@@ -522,17 +446,15 @@ class MotherboardMapView:
         else:
             brand = cpu_name[:12]
 
-        cx, cy = 265, 114   # centro del CPU
-        SR = 48             # radio del disipador
-        SK = 28             # mitad del socket
+        cx, cy = 265, 114
+        SR = 48
+        SK = 28
 
-        # ── Disipador (fan shroud) ──
         fan_x1, fan_y1 = cx - SR - 8, cy - SR - 8
         fan_x2, fan_y2 = cx + SR + 8, cy + SR + 8
         self._rr(fan_x1, fan_y1, fan_x2, fan_y2, r=6,
                  fill="#141f30", outline="#253040", width=1, tags="cpu_fan_shroud")
 
-        # Aspas del ventilador
         for angle_deg in range(0, 360, 45):
             import math
             ang = math.radians(angle_deg)
@@ -543,29 +465,24 @@ class MotherboardMapView:
             c.create_line(int(bx), int(by), int(bx2), int(by2),
                           fill="#1e3a5a", width=3, tags="cpu_fan_blade")
 
-        # Círculo central del fan
         c.create_oval(cx - 8, cy - 8, cx + 8, cy + 8,
                       fill="#111f30", outline="#253040", width=2, tags="cpu_fan_hub")
 
-        # Aletas del disipador (radiador)
         for fi in range(-3, 4):
             fx = cx + fi * 12
             c.create_line(fx, fan_y1 + 4, fx, fan_y2 - 4,
                           fill="#1a2e45", width=2, tags="cpu_heatsink_fin")
 
-        # ── Socket LGA/AM5 ──
         sock_x1, sock_y1 = cx - SK - 2, cy - SK - 2
         sock_x2, sock_y2 = cx + SK + 2, cy + SK + 2
         self._rr(sock_x1, sock_y1, sock_x2, sock_y2, r=4,
                  fill="#0d1520", outline="#374151", width=2, tags="cpu_socket_frame")
 
-        # Anclajes del socket (4 esquinas)
         for ax, ay in [(sock_x1, sock_y1), (sock_x2, sock_y1),
                        (sock_x1, sock_y2), (sock_x2, sock_y2)]:
             c.create_oval(ax - 3, ay - 3, ax + 3, ay + 3,
                           fill="#374151", outline="#4b5563", width=1, tags="cpu_anchor")
 
-        # IHS (Integrated Heat Spreader) — tapa metálica del CPU
         ihs_x1, ihs_y1 = cx - SK + 3, cy - SK + 3
         ihs_x2, ihs_y2 = cx + SK - 3, cy + SK - 3
         self._rr(ihs_x1, ihs_y1, ihs_x2, ihs_y2, r=3,
@@ -574,13 +491,11 @@ class MotherboardMapView:
                  width=2 if self.comp_afectado == "CPU" else 1,
                  tags="cpu_ihs")
 
-        # Etiqueta dentro del IHS
         c.create_text(cx, cy - 6,
                       text="CPU", fill=C["text_dim"], font=("Consolas", 8, "bold"), tags="cpu_lbl")
         c.create_text(cx, cy + 7,
                       text=brand, fill=tcol, font=("Segoe UI", 7), tags="cpu_brand")
 
-        # Alerta si es afectado
         if self.comp_afectado == "CPU":
             self._badge_alert(sock_x2 + 4, sock_y1 - 4)
             c.create_text(cx, fan_y2 + 9,
@@ -611,27 +526,22 @@ class MotherboardMapView:
             sx2 = sx1 + slot_w
             sy2 = sy1 + slot_h
 
-            # ¿Ranura ocupada?
             occupied = i < len(ram_info)
             s_fill   = fill if occupied else "#0d1520"
             s_border = border if occupied else "#1e293b"
 
-            # Slot principal
             self._rr(sx1, sy1, sx2, sy2, r=2, fill=s_fill, outline=s_border, width=2, tags=f"ram_slot_{i}")
 
-            # Chips de memoria sobre el módulo (si ocupado)
             if occupied:
                 for ci in range(4):
                     cy_chip = sy1 + 12 + ci * 24
                     c.create_rectangle(sx1 + 2, cy_chip, sx2 - 2, cy_chip + 15,
                                        fill="#1a3050", outline="#2d5a8e", width=1, tags=f"ram_chip_{i}_{ci}")
 
-            # Muesca de polaridad (keying notch)
             notch_y = sy1 + slot_h // 2 + 10
             c.create_rectangle(sx1 + 3, notch_y, sx2 - 3, notch_y + 3,
                                fill="#0d1520", outline="", tags=f"ram_notch_{i}")
 
-            # Clips de retención (latches)
             c.create_rectangle(sx1 + 1, sy1 - 5, sx2 - 1, sy1 + 2,
                                fill=C["ram_clip"] if occupied else "#1e293b",
                                outline="", tags=f"ram_clip_top_{i}")
@@ -639,17 +549,14 @@ class MotherboardMapView:
                                fill=C["ram_clip"] if occupied else "#1e293b",
                                outline="", tags=f"ram_clip_bot_{i}")
 
-            # Número de ranura
             c.create_text((sx1 + sx2) // 2, sy2 + 10,
                           text=f"D{i+1}", fill=C["text_dim"], font=("Consolas", 7), tags=f"ram_lbl_{i}")
 
-        # Etiqueta resumen de RAM
         lbl_x = slot_x_start + (4 * slot_w + 3 * slot_gap) // 2
         c.create_text(lbl_x, slot_y_top + slot_h + 20,
                       text=f"{ram_total}  {ram_tipo} @{ram_vel}MHz",
                       fill=tcol, font=("Consolas", 8), tags="ram_summary_lbl")
 
-        # Alerta
         if self.comp_afectado == "RAM":
             for i in range(4):
                 sx1 = slot_x_start + i * (slot_w + slot_gap)
@@ -679,38 +586,30 @@ class MotherboardMapView:
 
         x1, y1, x2, y2 = 180, 194, 345, 220
 
-        # Disipador térmico (heatsink)
         hs_fill = C["m2_hs"] if self.comp_afectado != "M2" else C["alert_dim"]
         self._rr(x1 - 3, y1 - 4, x2 + 3, y2 + 4, r=3,
                  fill=hs_fill, outline=border, width=2 if self.comp_afectado == "M2" else 1,
                  tags="m2_heatsink")
 
-        # Aletas del disipador
         for hx in range(x1 + 4, x2 - 4, 8):
             c.create_line(hx, y1 - 3, hx, y2 + 3, fill="#1a2a3a", width=2, tags="m2_hs_fin")
 
-        # Módulo SSD debajo del heatsink
         self._rr(x1, y1, x2, y2, r=2, fill=fill, outline=border, width=1, tags="m2_module")
 
-        # Chips del módulo (NAND flash)
         for ci in range(4):
             chip_x = x1 + 10 + ci * 36
             c.create_rectangle(chip_x, y1 + 4, chip_x + 25, y2 - 4,
                                fill="#1a3050", outline="#2d5a8e", width=1, tags=f"m2_chip_{ci}")
 
-        # Conector M.2 (extremo derecho)
         c.create_rectangle(x2 - 3, y1 + 5, x2 + 2, y2 - 5,
                            fill="#0a1020", outline="#374151", width=1, tags="m2_connector")
 
-        # Etiqueta
         c.create_text((x1 + x2) // 2, (y1 + y2) // 2,
                       text=m2_label, fill=tcol, font=("Consolas", 8, "bold"), tags="m2_lbl")
 
-        # Slot de anclaje
         c.create_oval(x2 + 4, (y1 + y2) // 2 - 3, x2 + 10, (y1 + y2) // 2 + 3,
                       fill="#374151", outline="#4b5563", tags="m2_anchor")
 
-        # Alerta
         if self.comp_afectado == "M2":
             self._badge_alert(x2 + 12, y1 - 2)
 
@@ -730,29 +629,23 @@ class MotherboardMapView:
         if len(gpu_short) > 20:
             gpu_short = gpu_short[:20] + "…"
 
-        # ── Slot PCIe x16 ──
         slot_x1, slot_y1 = 120, 242
         slot_x2, slot_y2 = 540, 256
 
-        # Refuerzo metálico del slot
         self._rr(slot_x1, slot_y1, slot_x2, slot_y2, r=3,
                  fill="#0a1018", outline="#c0c0c0", width=2, tags="pcie_slot_reinforce")
 
-        # Ranura interior
         c.create_rectangle(slot_x1 + 4, slot_y1 + 4, slot_x2 - 4, slot_y2 - 4,
                            fill="#050a10", outline="#374151", width=1, tags="pcie_slot_inner")
 
-        # Pins del slot
         for px in range(slot_x1 + 8, slot_x2 - 8, 6):
             c.create_line(px, slot_y1 + 4, px, slot_y2 - 4,
                           fill="#1e3a5a", width=1, tags="pcie_pin")
 
-        # Etiqueta PCIe
         c.create_text(slot_x1 - 22, (slot_y1 + slot_y2) // 2,
                       text="PCIe\nx16", fill=C["text_dim"], font=("Consolas", 7),
                       justify="center", tags="pcie_label")
 
-        # ── Tarjeta Gráfica (GPU card) ──
         card_x1, card_y1 = slot_x1 + 10, slot_y2
         card_x2, card_y2 = 560, slot_y2 + 78
 
@@ -761,11 +654,9 @@ class MotherboardMapView:
                  fill=gpu_fill, outline=border, width=3 if self.comp_afectado == "GPU" else 1,
                  tags="gpu_card")
 
-        # PCB de la tarjeta
         self._rr(card_x1 + 3, card_y1 + 3, card_x2 - 3, card_y2 - 3, r=4,
                  fill=C["gpu_fill"], outline="", tags="gpu_pcb")
 
-        # Ventiladores (x3 esquemáticos reducidos a escala)
         fan_centers = [
             (card_x1 + 68, card_y1 + 39),
             (card_x1 + 185, card_y1 + 39),
@@ -773,10 +664,8 @@ class MotherboardMapView:
         ]
         fan_r = 26
         for fx, fy in fan_centers:
-            # Shroud del ventilador
             c.create_oval(fx - fan_r, fy - fan_r, fx + fan_r, fy + fan_r,
                           fill=C["gpu_fan"], outline=border, width=1, tags="gpu_fan_ring")
-            # Aspas
             import math
             for ang_d in range(0, 360, 60):
                 a = math.radians(ang_d)
@@ -786,11 +675,9 @@ class MotherboardMapView:
                 by2 = fy + (fan_r * 0.82) * math.sin(a + math.radians(25))
                 c.create_line(int(bx1), int(by1), int(bx2), int(by2),
                               fill="#1a3050", width=2, tags="gpu_fan_blade")
-            # Hub central
             c.create_oval(fx - 6, fy - 6, fx + 6, fy + 6,
                           fill="#0a1525", outline="#253550", width=1, tags="gpu_fan_hub")
 
-        # Conectores de energía PCIe 8-pin
         conn_x = card_x2 - 25
         for ci in range(2):
             cy_c = card_y1 + 10 + ci * 28
@@ -803,12 +690,10 @@ class MotherboardMapView:
             c.create_text(conn_x, cy_c - 5,
                           text="8-pin", fill=C["text_dim"], font=("Consolas", 6), tags=f"gpu_pwr_lbl_{ci}")
 
-        # Etiqueta de la GPU
         c.create_text((card_x1 + card_x2) // 2, card_y1 + 12,
                       text=f"GPU  ·  {gpu_short}",
                       fill=tcol, font=("Segoe UI", 9, "bold"), tags="gpu_lbl")
 
-        # VRAM chips (indicador compacto)
         gpus_data = self.hw.get("gpus", [])
         if gpus_data:
             vram_mb = gpus_data[0].get("vram_mb", 0)
@@ -817,7 +702,6 @@ class MotherboardMapView:
                           text=vram_str,
                           fill=C["text_secondary"], font=("Consolas", 8), tags="gpu_vram_lbl")
 
-        # Alerta
         if self.comp_afectado == "GPU":
             self._rr(card_x1, card_y1, card_x2, card_y2, r=6,
                      fill="", outline=C["alert"], width=3, tags="gpu_alert_border")
@@ -826,10 +710,8 @@ class MotherboardMapView:
                           text="[!] TARJETA GRÁFICA — Revisar PCIe / Alimentación",
                           fill=C["text_alert"], font=("Consolas", 7, "bold"), tags="gpu_alert_lbl")
 
-        # Placa bracket trasero
         c.create_rectangle(card_x1, card_y1, card_x1 + 14, card_y2,
                            fill="#1a2030", outline="#374151", width=1, tags="gpu_bracket")
-        # Puertos de video en el bracket
         for port_i, (port_col, port_lbl) in enumerate([
             ("#1d4ed8", "DP"), ("#1d4ed8", "DP"), ("#374151", "HD")
         ]):
@@ -839,9 +721,6 @@ class MotherboardMapView:
 
         self._gpu_bounds = (card_x1, slot_y1, card_x2, card_y2)
 
-    # ------------------------------------------------------------------
-    # Leyenda
-    # ------------------------------------------------------------------
     def _draw_legend(self):
         """Pequeña leyenda de colores en la esquina inferior derecha del canvas."""
         c = self.canvas
@@ -860,9 +739,6 @@ class MotherboardMapView:
                           text=lbl, fill=C["text_secondary"], font=("Consolas", 7),
                           anchor="w", tags=f"legend_lbl_{i}")
 
-    # ------------------------------------------------------------------
-    # Sistema de hover y tooltips
-    # ------------------------------------------------------------------
     def _bind_hover_events(self):
         """Vincula el evento de movimiento del mouse para detección de hover."""
         self.canvas.bind("<Motion>", self._on_mouse_move)
@@ -985,7 +861,6 @@ class MotherboardMapView:
         title, data, estado = self._build_tooltip_data(comp_key)
         afectado = (self.comp_afectado == comp_key)
 
-        # Calcular posición (evitar salirse del canvas)
         TW, TH = 250, 130
         tx = mx + 12
         ty = my + 12
@@ -994,25 +869,21 @@ class MotherboardMapView:
         if ty + TH > self.CH - 10:
             ty = my - TH - 12
 
-        # Fondo y borde de la tooltip
         border_col = C["alert"] if afectado else C["text_cyan"]
         tid_bg = self._rr(tx, ty, tx + TW, ty + TH, r=6,
                           fill=C["tooltip_bg"], outline=border_col, width=2)
         self._tooltip_items.append(tid_bg)
 
-        # Barra superior de título
         tid_bar = self._rr(tx + 2, ty + 2, tx + TW - 2, ty + 22, r=4,
                            fill=C["alert_dim"] if afectado else "#0d2040", outline="")
         self._tooltip_items.append(tid_bar)
 
-        # Título
         tid_title = c.create_text(tx + TW // 2, ty + 12,
                                   text=title,
                                   fill=C["text_alert"] if afectado else C["text_cyan"],
                                   font=("Segoe UI", 9, "bold"), anchor="center")
         self._tooltip_items.append(tid_title)
 
-        # Datos técnicos
         tid_data = c.create_text(tx + 8, ty + 28,
                                  text=data,
                                  fill=C["text_primary"],
@@ -1020,7 +891,6 @@ class MotherboardMapView:
                                  anchor="nw", justify="left")
         self._tooltip_items.append(tid_data)
 
-        # Estado
         estado_col = C["text_alert"] if afectado else C["text_ok"]
         tid_estado = c.create_text(tx + 8, ty + TH - 12,
                                    text=f"Estado: {estado}",
@@ -1063,7 +933,6 @@ class MotherboardMapView:
 
             c.delete("anim_60fps")
 
-            # 1. Halo pulsante a 60 FPS sobre el componente afectado (o CPU si todo está óptimo)
             target_key = (self.comp_afectado or "CPU").lower()
             rect = getattr(self, f"_{target_key}_bounds", getattr(self, "_cpu_bounds", None))
             if rect:
@@ -1082,7 +951,6 @@ class MotherboardMapView:
                     outline=col_halo, width=2, dash=(6, 4), tags="anim_60fps"
                 )
 
-            # 2. Pulso de datos desplazándose a 60 FPS entre CPU -> RAM y CPU -> GPU
             t = self._bus_t
             px1 = 321 + (416 - 321) * t
             py1 = 114

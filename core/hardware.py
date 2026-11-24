@@ -27,9 +27,6 @@ import psutil
 from typing import Any
 
 
-# ---------------------------------------------------------------------------
-# Utilidades internas multiplataforma (Windows WMI / Linux sysfs / macOS)
-# ---------------------------------------------------------------------------
 def _run_cmd(args: list[str], timeout: int = 5) -> str:
     """Ejecuta un comando nativo del SO y devuelve stdout limpio o '' si falla."""
     try:
@@ -96,10 +93,6 @@ def _wmi_query(clase_wmi: str, propiedades: list[str]) -> list[dict[str, Any]]:
         return []
 
 
-# ---------------------------------------------------------------------------
-# Secciones de telemetría
-# ---------------------------------------------------------------------------
-
 def _escanear_motherboard_bios() -> dict[str, str]:
     """Fabricante, modelo, versión y fecha de BIOS (Windows, Linux y macOS)."""
     if sys.platform.startswith("linux"):
@@ -143,9 +136,6 @@ def _escanear_motherboard_bios() -> dict[str, str]:
     mb_data = mb[0] if mb else {}
     bios_data = bios[0] if bios else {}
 
-    # La fecha de BIOS puede llegar en dos formatos WMI:
-    #   "/Date(1736726400000)/"  → epoch Unix en milisegundos (CIM moderno)
-    #   "20250113000000.000000+000" → cadena datetime clásica
     fecha_raw = bios_data.get("ReleaseDate", "") or ""
     fecha_bios = "Desconocida"
     epoch_match = re.search(r"/Date\((\d+)\)/", fecha_raw)
@@ -165,7 +155,6 @@ def _escanear_motherboard_bios() -> dict[str, str]:
     }
 
 
-# Códigos SMBIOS (Win32_SystemEnclosure.ChassisTypes)
 _LAPTOP_CHASSIS_TYPES: set[int] = {8, 9, 10, 14, 30, 31, 32}
 _DESKTOP_CHASSIS_TYPES: set[int] = {3, 4, 5, 6, 7, 13, 15, 16}
 
@@ -289,7 +278,6 @@ def _escanear_cpu() -> dict[str, Any]:
     nucleos_fisicos = int(cpu_data.get("NumberOfCores") or psutil.cpu_count(logical=False) or 1)
     nucleos_logicos = int(cpu_data.get("NumberOfLogicalProcessors") or psutil.cpu_count(logical=True) or 1)
 
-    # Frecuencias
     try:
         freq = psutil.cpu_freq()
     except Exception:
@@ -297,22 +285,20 @@ def _escanear_cpu() -> dict[str, Any]:
     freq_base_ghz = round(freq.max / 1000, 2) if freq and freq.max else 0.0
     freq_actual_ghz = round(freq.current / 1000, 2) if freq and freq.current else 0.0
     if freq_actual_ghz <= 0.0 and sys.platform == "darwin":
-        # Apple Silicon a veces no expone frecuencia vía sysctl en psutil
         freq_base_ghz = freq_base_ghz or 3.20
         freq_actual_ghz = 3.20
 
-    # Uso por núcleo (intervalo corto para no bloquear)
     uso_por_nucleo = psutil.cpu_percent(interval=0.5, percpu=True)
 
     return {
         "nombre_cpu": nombre_cpu,
         "nucleos_fisicos": nucleos_fisicos,
-        "nucleos": nucleos_logicos,           # clave legacy
+        "nucleos": nucleos_logicos,
         "frecuencia_base_ghz": freq_base_ghz,
         "frecuencia_actual_ghz": freq_actual_ghz,
         "uso_por_nucleo": uso_por_nucleo,
         "uso_cpu_total": round(sum(uso_por_nucleo) / len(uso_por_nucleo), 1) if uso_por_nucleo else 0.0,
-        "alerta_cpu": nucleos_logicos <= 2,    # clave legacy
+        "alerta_cpu": nucleos_logicos <= 2,
     }
 
 
@@ -322,13 +308,11 @@ def _escanear_ram() -> dict[str, Any]:
     ram_total_mb_int = int(memoria.total / (1024 * 1024))
     ram_libre_mb_int = int(memoria.available / (1024 * 1024))
 
-    # Detalles físicos de los módulos
     modulos_wmi = _wmi_query(
         "Win32_PhysicalMemory",
         ["Capacity", "Speed", "SMBIOSMemoryType", "DeviceLocator", "BankLabel"]
     )
 
-    # SMBIOSMemoryType → nombre legible
     tipo_map = {
         20: "DDR", 21: "DDR2", 22: "DDR2 FB-DIMM",
         24: "DDR3", 26: "DDR4", 34: "DDR5", 0: "Desconocido"
@@ -360,11 +344,9 @@ def _escanear_ram() -> dict[str, Any]:
     velocidad_ram = modulos[0]["velocidad_mhz"] if modulos else "?"
 
     return {
-        # Claves legacy (en formato string para retrocompatibilidad)
         "ram_total_mb": f"{ram_total_mb_int} MB",
         "ram_disponible_mb": f"{ram_libre_mb_int} MB",
-        "alerta_ram": ram_total_mb_int <= 2048,   # clave legacy
-        # Claves extendidas
+        "alerta_ram": ram_total_mb_int <= 2048,
         "ram_total_mb_int": ram_total_mb_int,
         "ram_libre_mb_int": ram_libre_mb_int,
         "ram_uso_pct": round(memoria.percent, 1),
@@ -385,7 +367,6 @@ def _escanear_gpu() -> dict[str, Any]:
     gpus = []
     for g in gpus_wmi:
         vram_bytes = int(g.get("AdapterRAM") or 0)
-        # AdapterRAM puede ser un entero de 32 bits sin signo — corregir overflow
         if vram_bytes < 0:
             vram_bytes += 2 ** 32
         gpus.append({
@@ -455,7 +436,6 @@ def _escanear_gpu() -> dict[str, Any]:
 
 def _escanear_almacenamiento() -> dict[str, Any]:
     """Discos físicos (tipo de interfaz) + particiones lógicas."""
-    # Discos físicos y tipo de interfaz
     discos_fisicos_wmi = _wmi_query(
         "Win32_DiskDrive",
         ["Model", "MediaType", "InterfaceType", "Size", "SerialNumber"]
@@ -467,7 +447,6 @@ def _escanear_almacenamiento() -> dict[str, Any]:
         interfaz = (d.get("InterfaceType") or "").upper()
         media = (d.get("MediaType") or "").lower()
 
-        # Clasificación simplificada
         if "nvme" in (d.get("Model") or "").lower() or "nvme" in interfaz:
             tipo_disco = "NVMe SSD"
         elif interfaz in ("USB", "1394"):
@@ -528,7 +507,6 @@ def _escanear_almacenamiento() -> dict[str, Any]:
         except Exception:
             pass
 
-    # Particiones lógicas vía psutil
     particiones = []
     for part in psutil.disk_partitions(all=False):
         if sys.platform.startswith("linux") and (
@@ -556,18 +534,15 @@ def _escanear_almacenamiento() -> dict[str, Any]:
 
 def _escanear_red_y_so() -> dict[str, Any]:
     """Adaptador activo, ping a gateway/DNS, uptime y compilación de Windows."""
-    # Uptime
     boot_ts = psutil.boot_time()
     uptime_seg = time.time() - boot_ts
     horas = int(uptime_seg // 3600)
     minutos = int((uptime_seg % 3600) // 60)
     uptime_str = f"{horas}h {minutos}m"
 
-    # SO extendido
     so_version = f"{platform.system()} {platform.release()}"
-    build_win = platform.version()  # e.g. "10.0.22621"
+    build_win = platform.version()
 
-    # Adaptadores de red activos
     adaptadores = []
     stats = psutil.net_if_stats()
     addrs = psutil.net_if_addrs()
@@ -575,9 +550,9 @@ def _escanear_red_y_so() -> dict[str, Any]:
         if stat.isup:
             ips = [
                 a.address for a in addrs.get(iface, [])
-                if ":" not in a.address          # excluye IPv6
-                and "-" not in a.address          # excluye MACs (formato Windows AA-BB-CC)
-                and not a.address.startswith("127.")  # excluye loopback
+                if ":" not in a.address
+                and "-" not in a.address
+                and not a.address.startswith("127.")
             ]
             if ips:
                 adaptadores.append({"nombre": iface, "ip": ips[0], "velocidad_mbps": stat.speed})
@@ -585,11 +560,10 @@ def _escanear_red_y_so() -> dict[str, Any]:
     adaptador_activo = adaptadores[0]["nombre"] if adaptadores else "Ninguno"
     ip_local = adaptadores[0]["ip"] if adaptadores else "N/A"
 
-    # Latencia: ping a 8.8.8.8 (DNS Google) — fallback a gateway
     latencia_ms = _ping_latencia("8.8.8.8")
 
     return {
-        "so": so_version,                  # clave legacy
+        "so": so_version,
         "so_build": build_win,
         "uptime": uptime_str,
         "adaptador_activo": adaptador_activo,
@@ -631,10 +605,6 @@ def _ping_latencia(host: str) -> str:
         pass
     return "N/A"
 
-
-# ---------------------------------------------------------------------------
-# Clase pública
-# ---------------------------------------------------------------------------
 
 def _tiene_firma_portatil(hw: dict[str, Any]) -> bool:
     """
@@ -697,10 +667,6 @@ def _tiene_firma_portatil(hw: dict[str, Any]) -> bool:
         return True
     return False
 
-
-# ---------------------------------------------------------------------------
-# Detección de Modelo Comercial del Equipo (Windows, Linux y macOS — 100% offline)
-# ---------------------------------------------------------------------------
 
 _OEM_INVALIDOS = {
     "",
@@ -779,7 +745,6 @@ def _resolver_modelo_comercial(
     ver = _limpiar_campo_oem(version)
     sku_clean = _limpiar_campo_oem(sku)
 
-    # Limpiar sufijos duplicados típicos de ASUS (ej. "FA506NF_FA506NF")
     if "_" in mod:
         partes_u = mod.split("_")
         if len(partes_u) == 2 and partes_u[1] and partes_u[0].endswith(partes_u[1]):
@@ -790,7 +755,6 @@ def _resolver_modelo_comercial(
     codigo_modelo = mod
 
     if es_oem:
-        # Regla especial Lenovo: Model suele ser MTM corto ("83S0", "21CB000BUS") y Family/Version trae el nombre comercial
         if fab.upper() == "LENOVO":
             comercial_lenovo = ""
             for cand in (ver, fam):
@@ -805,7 +769,6 @@ def _resolver_modelo_comercial(
             elif fam:
                 nombre_comercial = f"{fab} {fam}"
 
-        # Regla Apple macOS
         elif fab.lower() == "apple":
             base_mac = mod or fam or "Mac"
             if not base_mac.lower().startswith("apple"):
@@ -816,7 +779,6 @@ def _resolver_modelo_comercial(
                 nombre_comercial = base_mac
             codigo_modelo = ver or mod
 
-        # Regla general OEM (ASUS, HP, Dell, Acer, MSI, HUAWEI, etc.)
         else:
             principal = mod or fam or ver
             if fam and principal and len(principal) <= 8 and fam.lower() != principal.lower() and not re.match(r"^[0-9A-Z_-]{2,8}$", fam):
@@ -826,7 +788,6 @@ def _resolver_modelo_comercial(
             else:
                 nombre_comercial = principal
     else:
-        # PC ensamblada / genérica sin modelo comercial OEM válido
         mb_fab_norm = _normalizar_marca_oem(mb_fabricante)
         mb_mod_clean = _limpiar_campo_oem(mb_modelo)
         if mb_fab_norm and mb_mod_clean:
@@ -902,10 +863,6 @@ def _escanear_modelo_equipo(mb: dict[str, Any], tipo_equipo: str = "desktop") ->
     )
 
 
-# ---------------------------------------------------------------------------
-# Auditoría de Licencia de Windows (solo lectura, exclusivo win32)
-# ---------------------------------------------------------------------------
-
 _KMS_PUBLICOS_CONOCIDOS = (
     "localhost",
     "127.0.0.",
@@ -953,7 +910,7 @@ def _leer_kms_registro_windows() -> str:
     if sys.platform != "win32":
         return ""
     try:
-        import winreg  # condicional: nunca se importa en Linux/macOS
+        import winreg
 
         ruta = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, ruta, 0, winreg.KEY_READ) as clave:
@@ -1277,7 +1234,6 @@ class LectorHardware:
         red = _escanear_red_y_so()
         licencia_win = _escanear_licencia_windows()
 
-        # Combinar todo en un dict plano, preservando claves legacy
         datos: dict[str, Any] = {}
         datos.update(mb)
         datos.update(tipo_eq)
@@ -1295,10 +1251,6 @@ class LectorHardware:
         return datos
 
 
-# ---------------------------------------------------------------------------
-# Utilidades públicas para persistencia (usadas por cloud_gateway.py)
-# ---------------------------------------------------------------------------
-
 def calcular_health_score(hw: dict[str, Any]) -> int:
     """
     Calcula un score de salud del sistema del 0 al 100 basado en reglas de auditoría.
@@ -1315,7 +1267,6 @@ def calcular_health_score(hw: dict[str, Any]) -> int:
     """
     score = 100
 
-    # Disco sistema (primera partición con letra C:\ en Windows o / en Linux/macOS)
     for part in hw.get("particiones", []):
         letra = str(part.get("letra", "")).strip().upper()
         if letra.startswith("C") or letra == "/":
@@ -1326,14 +1277,12 @@ def calcular_health_score(hw: dict[str, Any]) -> int:
                 score -= 10
             break
 
-    # RAM
     ram_mb = hw.get("ram_total_mb_int", 0)
     if ram_mb < 4096:
         score -= 15
     elif ram_mb < 8192:
         score -= 10
 
-    # Red
     latencia_str = str(hw.get("latencia_ms", "N/A"))
     if latencia_str != "N/A":
         try:
@@ -1345,11 +1294,9 @@ def calcular_health_score(hw: dict[str, Any]) -> int:
     if hw.get("adaptador_activo", "Ninguno") in ("Ninguno", ""):
         score -= 10
 
-    # GPU
     if hw.get("gpu_principal", "No detectada") in ("No detectada", ""):
         score -= 10
 
-    # CPU
     freq_actual = hw.get("frecuencia_actual_ghz", 0.0) or 0.0
     if 0 < freq_actual < 1.5:
         score -= 5
@@ -1389,10 +1336,8 @@ def _inferir_refrigeracion(hw: dict[str, Any]) -> str:
     telemetría disponible. Sin sensor directo en WMI, usamos heurísticas.
     """
     cpu = (hw.get("nombre_cpu", "") or "").lower()
-    # Procesadores de bajo TDP habitualmente usan refrigeración integrada
     if any(x in cpu for x in ("celeron", "pentium", "atom", "n4", "n5", "n3")):
         return "Cooler Integrado (Low-TDP)"
-    # Ryzen/i9/i7 sugieren cooler de torre o AIO por TDP alto
     if any(x in cpu for x in ("i9", "ryzen 9", "threadripper", "epyc")):
         return "Cooler Torre Alta Gama / AIO Líquida (inferido)"
     if any(x in cpu for x in ("i7", "ryzen 7", "i5", "ryzen 5")):
@@ -1412,14 +1357,12 @@ def construir_resumen_para_bd(
     Todas las columnas de texto se coercen a str; health_score a int;
     specs_json es un dict nativo (supabase-py lo serializa a jsonb).
     """
-    # Campos de texto simples
     cpu_info   = f"{hw.get('nombre_cpu', '?')} ({hw.get('nucleos_fisicos', '?')}C/{hw.get('nucleos', '?')}T @ {hw.get('frecuencia_actual_ghz', '?')} GHz)"
     ram_info   = f"{hw.get('ram_total_mb', '?')} {hw.get('ram_tipo', '')} @ {hw.get('ram_velocidad_mhz', '?')} MHz ({hw.get('ram_ranuras_ocupadas', '?')} ranuras)"
     gpu_info   = _formatear_gpu(hw)
     storage    = _formatear_almacenamiento(hw)
     refrig     = _inferir_refrigeracion(hw)
     hscore     = calcular_health_score(hw)
-    # specs_json: snapshot extendido serializable (excluye listas anidadas complejas)
     tipo_final = hw.get("tipo_equipo")
     if tipo_final != "laptop" and _tiene_firma_portatil(hw):
         tipo_final = "laptop"

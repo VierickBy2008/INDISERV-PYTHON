@@ -19,7 +19,6 @@ import sys
 
 
 def main() -> int:
-    # En Windows el separador de --add-data es ';', en Linux y macOS es ':'
     sep = ";" if sys.platform == "win32" else ":"
 
     if sys.platform == "win32":
