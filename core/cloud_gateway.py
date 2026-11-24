@@ -254,7 +254,7 @@ class CloudGateway:
             return False
 
     @staticmethod
-    def listar_tickets_usuario(dni: str | None, limite: int = 20) -> list[dict[str, Any]]:
+    def listar_tickets_usuario(dni: str | None, limite: int = 120) -> list[dict[str, Any]]:
         """
         Devuelve únicamente los tickets en 'reportes_diagnostico' cuyo
         specs_json->>owner_dni coincide exactamente con el DNI autenticado.

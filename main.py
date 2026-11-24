@@ -2731,7 +2731,7 @@ class AppIndiServ(ctk.CTk):
 
     def modal_mis_tickets(self):
         v = ctk.CTkToplevel(self)
-        estilizar_toplevel(v, self, "Mis Tickets Privados en la Nube", 660, 460)
+        estilizar_toplevel(v, self, "Centro de Flota y Reportes Privados", 820, 580)
 
         card = tarjeta(v)
         card.pack(fill="both", expand=True, padx=16, pady=16)
@@ -2742,25 +2742,49 @@ class AppIndiServ(ctk.CTk):
         enc = ctk.CTkFrame(card, fg_color="transparent")
         enc.pack(fill="x", padx=14, pady=(12, 4))
         ctk.CTkLabel(
-            enc, text="🔒 Mis Tickets Privados en la Nube",
+            enc, text="🔒 Centro de Flota y Reportes Privados",
             font=F_H2, text_color=P["texto"]
         ).pack(side="left")
         Badge(enc, f"Cuenta DNI {dni_mask}", tipo="ok" if dni else "warn").pack(side="right")
 
-        ctk.CTkLabel(
+        lbl_resumen = ctk.CTkLabel(
             card,
-            text="Por seguridad y privacidad, solo se muestran los reportes generados con tu cuenta.",
+            text="Organiza los reportes de todas tus PCs, Laptops y Teléfonos por fecha, dispositivo o salud.",
             font=F_SMALL, text_color=P["texto_sec"], anchor="w"
-        ).pack(fill="x", padx=14, pady=(0, 8))
-
-        scroll = ctk.CTkScrollableFrame(card, fg_color=P["bg"], corner_radius=8)
-        scroll.pack(fill="both", expand=True, padx=14, pady=4)
-
-        lbl_estado = ctk.CTkLabel(
-            scroll, text="Consultando tus reportes privados en Supabase…",
-            font=F_SMALL, text_color=P["texto_sec"]
         )
-        lbl_estado.pack(pady=24)
+        lbl_resumen.pack(fill="x", padx=14, pady=(0, 6))
+
+        # Barra de controles de filtrado, agrupación y ordenamiento elegibles por el usuario
+        controles = ctk.CTkFrame(card, fg_color=P["surface"], corner_radius=9, border_width=1, border_color=P["borde"])
+        controles.pack(fill="x", padx=14, pady=(0, 6))
+
+        fila_ctrl = ctk.CTkFrame(controles, fg_color="transparent")
+        fila_ctrl.pack(fill="x", padx=10, pady=8)
+
+        ent_filtro = entrada(fila_ctrl, "Filtrar por modelo, ID o error…", width=210, height=30, font=F_SMALL)
+        ent_filtro.pack(side="left", padx=(0, 8))
+
+        var_tipo = ctk.StringVar(value="Todos")
+        var_agrupar = ctk.StringVar(value="Por Fecha")
+        var_orden = ctk.StringVar(value="Más recientes")
+
+        filas_cache: list[dict] = []
+
+        def _tipo_item(item: dict) -> str:
+            specs = item.get("specs_json") or {}
+            t = str(specs.get("tipo_equipo") or "").lower()
+            if t in ("phone", "smartphone", "tablet", "mobile"):
+                return "Teléfono"
+            if t == "laptop" or any(k in f"{item.get('placa_base', '')} {item.get('cpu', '')}".lower() for k in ("laptop", "lnvnb", "loq", "tuf", "victus")):
+                return "Laptop"
+            return "PC"
+
+        def _modelo_item(item: dict) -> str:
+            specs = item.get("specs_json") or {}
+            m = str(specs.get("modelo_comercial") or "").strip()
+            if m:
+                return m
+            return str(item.get("placa_base") or item.get("cpu") or "Equipo").strip()
 
         def _render_tickets(filas: list[dict]):
             if not v.winfo_exists():
@@ -2783,50 +2807,153 @@ class AppIndiServ(ctk.CTk):
                 ).pack(pady=28)
                 return
 
+            kw = ent_filtro.get().strip().lower()
+            f_tipo = var_tipo.get()
+            f_agrupar = var_agrupar.get()
+            f_orden = var_orden.get()
+
+            filtradas = []
             for item in filas:
-                t_id = item.get("id_ticket", "?")
-                specs = item.get("specs_json") or {}
-                tipo = specs.get("tipo_equipo", "desktop")
-                evento = specs.get("tipo_evento") or "Diagnóstico"
-                etiqueta_tipo = "Teléfono" if tipo == "phone" else ("Laptop" if tipo == "laptop" else "PC")
-                score = item.get("health_score", 100)
-                equipo = item.get("placa_base") or item.get("cpu") or "Equipo diagnosticado"
-                diag_txt = (item.get("diagnostico") or "").strip()
-                fecha_raw = str(item.get("fecha_creacion") or "")
-                fecha_fmt = fecha_raw[:16].replace("T", " ") if len(fecha_raw) >= 16 else ""
+                t_lbl = _tipo_item(item)
+                score = int(item.get("health_score", 100) or 0)
+                errs = (item.get("specs_json") or {}).get("errores_detectados") or []
+                if f_tipo == "Laptops" and t_lbl != "Laptop":
+                    continue
+                if f_tipo == "PCs" and t_lbl != "PC":
+                    continue
+                if f_tipo == "Teléfonos" and t_lbl != "Teléfono":
+                    continue
+                if f_tipo == "Con Alertas" and score >= 80 and not errs:
+                    continue
+                if kw:
+                    hay = f"{item.get('id_ticket', '')} {_modelo_item(item)} {item.get('diagnostico', '')} {item.get('fecha_creacion', '')}".lower()
+                    if kw not in hay:
+                        continue
+                filtradas.append(item)
 
-                fila = ctk.CTkFrame(
-                    scroll, fg_color=P["surface"], corner_radius=8,
-                    border_width=1, border_color=P["borde"]
-                )
-                fila.pack(fill="x", padx=6, pady=4)
+            if f_orden == "Más antiguos":
+                filtradas.sort(key=lambda x: str(x.get("fecha_creacion") or ""))
+            elif f_orden == "Peor salud":
+                filtradas.sort(key=lambda x: (int(x.get("health_score", 100) or 0), str(x.get("fecha_creacion") or "")))
+            elif f_orden == "Mejor salud":
+                filtradas.sort(key=lambda x: (-int(x.get("health_score", 100) or 0), str(x.get("fecha_creacion") or "")))
+            elif f_orden == "Modelo (A-Z)":
+                filtradas.sort(key=lambda x: _modelo_item(x).lower())
+            else:
+                filtradas.sort(key=lambda x: str(x.get("fecha_creacion") or ""), reverse=True)
 
-                info_box = ctk.CTkFrame(fila, fg_color="transparent")
-                info_box.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+            unicos = {f"{_tipo_item(x)}::{_modelo_item(x).lower()}" for x in filas}
+            alertas_tot = sum(1 for x in filas if int(x.get("health_score", 100) or 0) < 80 or bool((x.get("specs_json") or {}).get("errores_detectados")))
+            lbl_resumen.configure(
+                text=f"Flota: {len(filas)} reportes · {len(unicos)} equipos distintos · {alertas_tot} con alertas  |  Mostrando {len(filtradas)}"
+            )
 
-                meta_line = f"[{evento}]  {t_id}  ·  {etiqueta_tipo}  ·  Salud {score}/100"
-                if fecha_fmt:
-                    meta_line += f"  ·  {fecha_fmt}"
+            if not filtradas:
                 ctk.CTkLabel(
-                    info_box, text=meta_line,
-                    font=("Segoe UI Semibold", 11), text_color=P["texto"], anchor="w"
-                ).pack(fill="x")
-                detalle = diag_txt if diag_txt else str(equipo)
-                ctk.CTkLabel(
-                    info_box, text=f"{str(equipo)[:42]} — {detalle}"[:92],
-                    font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
-                ).pack(fill="x")
+                    scroll, text="No hay reportes que coincidan con el filtro aplicado.",
+                    font=F_SMALL, text_color=P["texto_sec"]
+                ).pack(pady=24)
+                return
 
-                boton(
-                    fila, "Abrir 3D",
-                    lambda tid=t_id: webbrowser.open(f"https://indiserv-web3d.vercel.app/?ticket={tid}"),
-                    variante="primario", width=92, height=28, font=F_SMALL
-                ).pack(side="right", padx=10, pady=8)
+            grupos: list[tuple[str | None, list[dict]]] = []
+            if f_agrupar == "Lista plana":
+                grupos = [(None, filtradas)]
+            else:
+                mapa_g: dict[str, list[dict]] = {}
+                for item in filtradas:
+                    if f_agrupar == "Por Fecha":
+                        f_raw = str(item.get("fecha_creacion") or "")
+                        clave = f"📅 {f_raw[:10]}" if len(f_raw) >= 10 else "📅 Sin fecha"
+                    else:
+                        clave = f"💻 {_modelo_item(item)} ({_tipo_item(item)})"
+                    mapa_g.setdefault(clave, []).append(item)
+                grupos = list(mapa_g.items())
+
+            for titulo_g, items_g in grupos:
+                if titulo_g:
+                    hdr = ctk.CTkFrame(scroll, fg_color="transparent")
+                    hdr.pack(fill="x", padx=6, pady=(8, 2))
+                    ctk.CTkLabel(
+                        hdr, text=f"{titulo_g}  ({len(items_g)})",
+                        font=F_H3, text_color=P["cian"], anchor="w"
+                    ).pack(side="left")
+
+                for item in items_g:
+                    t_id = item.get("id_ticket", "?")
+                    specs = item.get("specs_json") or {}
+                    evento = specs.get("tipo_evento") or "Diagnóstico"
+                    etiqueta_tipo = _tipo_item(item)
+                    score = int(item.get("health_score", 100) or 0)
+                    equipo = _modelo_item(item)
+                    errs = specs.get("errores_detectados") or []
+                    diag_txt = (item.get("diagnostico") or "").strip()
+                    fecha_raw = str(item.get("fecha_creacion") or "")
+                    fecha_fmt = fecha_raw[:16].replace("T", " ") if len(fecha_raw) >= 16 else ""
+
+                    borde_c = P["rojo"] if score < 55 else (P["ambar"] if score < 80 or errs else P["borde"])
+                    fila = ctk.CTkFrame(
+                        scroll, fg_color=P["surface"], corner_radius=9,
+                        border_width=1, border_color=borde_c
+                    )
+                    fila.pack(fill="x", padx=6, pady=3)
+
+                    info_box = ctk.CTkFrame(fila, fg_color="transparent")
+                    info_box.pack(side="left", fill="x", expand=True, padx=10, pady=7)
+
+                    err_tag = f"  ·  ⚠ {len(errs)} alerta(s)" if errs else ""
+                    meta_line = f"[{evento}]  {t_id}  ·  {etiqueta_tipo}  ·  Salud {score}/100{err_tag}"
+                    if fecha_fmt:
+                        meta_line += f"  ·  {fecha_fmt}"
+                    ctk.CTkLabel(
+                        info_box, text=meta_line,
+                        font=F_SMALL, text_color=P["texto"], anchor="w"
+                    ).pack(fill="x")
+                    detalle = diag_txt if diag_txt else str(equipo)
+                    ctk.CTkLabel(
+                        info_box, text=f"{str(equipo)[:45]} — {detalle}"[:105],
+                        font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
+                    ).pack(fill="x")
+
+                    boton(
+                        fila, "Abrir Reporte 3D",
+                        lambda tid=t_id: webbrowser.open(f"https://indiserv-web3d.vercel.app/?ticket={tid}"),
+                        variante="primario", width=124, height=30, font=F_SMALL
+                    ).pack(side="right", padx=10, pady=8)
+
+        def _refiltrar(_val=None):
+            _render_tickets(filas_cache)
+
+        ent_filtro.bind("<KeyRelease>", _refiltrar)
+        ctk.CTkOptionMenu(
+            fila_ctrl, variable=var_tipo,
+            values=["Todos", "Laptops", "PCs", "Teléfonos", "Con Alertas"],
+            command=_refiltrar, width=118, height=30, **estilo_combo()
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkOptionMenu(
+            fila_ctrl, variable=var_agrupar,
+            values=["Por Fecha", "Por Equipo", "Lista plana"],
+            command=_refiltrar, width=118, height=30, **estilo_combo()
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkOptionMenu(
+            fila_ctrl, variable=var_orden,
+            values=["Más recientes", "Más antiguos", "Peor salud", "Mejor salud", "Modelo (A-Z)"],
+            command=_refiltrar, width=132, height=30, **estilo_combo()
+        ).pack(side="left")
+
+        scroll = ctk.CTkScrollableFrame(card, fg_color=P["bg"], corner_radius=8)
+        scroll.pack(fill="both", expand=True, padx=14, pady=4)
+
+        lbl_estado = ctk.CTkLabel(
+            scroll, text="Consultando tus reportes privados en Supabase…",
+            font=F_SMALL, text_color=P["texto_sec"]
+        )
+        lbl_estado.pack(pady=24)
 
         def _cargar_en_hilo():
-            filas = CloudGateway.listar_tickets_usuario(dni)
+            filas = CloudGateway.listar_tickets_usuario(dni, limite=120)
+            filas_cache[:] = filas
             try:
-                self.after(0, lambda f=filas: _render_tickets(f))
+                self.after(0, lambda f=list(filas): _render_tickets(f))
             except Exception:
                 pass
 

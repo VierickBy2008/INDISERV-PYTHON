@@ -1332,9 +1332,12 @@ def _formatear_almacenamiento(hw: dict[str, Any]) -> str:
 
 def _inferir_refrigeracion(hw: dict[str, Any]) -> str:
     """
-    Infiere el tipo de refrigeración a partir del nombre de la CPU y la
-    telemetría disponible. Sin sensor directo en WMI, usamos heurísticas.
+    Infiere el tipo de refrigeración a partir del factor de forma (laptop vs PC)
+    y el nombre de la CPU.
     """
+    tipo = str(hw.get("tipo_equipo") or "").lower()
+    if tipo == "laptop" or _tiene_firma_portatil(hw):
+        return "Sistema Térmico Integrado de Laptop (Heatpipes + Ventiladores)"
     cpu = (hw.get("nombre_cpu", "") or "").lower()
     if any(x in cpu for x in ("celeron", "pentium", "atom", "n4", "n5", "n3")):
         return "Cooler Integrado (Low-TDP)"
@@ -1385,14 +1388,63 @@ def construir_resumen_para_bd(
 
     clean_dni = str(owner_dni).strip() if owner_dni else ""
     lic = hw.get("licencia_windows") if isinstance(hw.get("licencia_windows"), dict) else {}
+
+    errores_detectados: list[dict[str, str]] = []
+    if hw.get("alerta_cpu"):
+        errores_detectados.append({
+            "severidad": "alta",
+            "area": "CPU",
+            "mensaje": f"Uso elevado de procesador ({hw.get('uso_cpu_total', '?')}%).",
+        })
+    if hw.get("alerta_ram"):
+        errores_detectados.append({
+            "severidad": "alta",
+            "area": "RAM",
+            "mensaje": f"Memoria RAM saturada ({hw.get('ram_uso_pct', '?')}% en uso).",
+        })
+    for part in hw.get("particiones", []) or []:
+        try:
+            pct_d = float(part.get("porcentaje", 0))
+        except (TypeError, ValueError):
+            pct_d = 0.0
+        if pct_d >= 85:
+            errores_detectados.append({
+                "severidad": "critica" if pct_d >= 92 else "media",
+                "area": "Disco",
+                "mensaje": f"Partición {part.get('punto_montaje', '?')} al {pct_d:.0f}% de capacidad.",
+            })
+    if lic.get("sospecha_kms"):
+        errores_detectados.append({
+            "severidad": "media",
+            "area": "Licencia SO",
+            "mensaje": f"Activación Windows con indicios KMS no oficial ({lic.get('estado', 'KMS')}).",
+        })
+    elif lic.get("aplicable") and lic.get("activa") is False:
+        errores_detectados.append({
+            "severidad": "media",
+            "area": "Licencia SO",
+            "mensaje": f"Windows sin activar o en periodo de gracia ({lic.get('estado', 'Sin activar')}).",
+        })
+    lat = hw.get("latencia_ms")
+    if isinstance(lat, (int, float)) and lat > 150:
+        errores_detectados.append({
+            "severidad": "media",
+            "area": "Red",
+            "mensaje": f"Latencia DNS elevada ({lat:.0f} ms).",
+        })
+
     specs_json: dict[str, Any] = {
         "tipo_equipo": tipo_final or "desktop",
         "modelo_comercial": modelo_com or None,
         "modelo_codigo": hw.get("equipo_codigo_modelo") or None,
+        "equipo_fabricante": hw.get("equipo_fabricante") or hw.get("mb_fabricante") or None,
+        "mb_fabricante": hw.get("mb_fabricante") or None,
+        "mb_modelo": hw.get("mb_modelo") or None,
         "owner_dni": clean_dni or None,
         "tipo_evento": str(diag.get("tipo_evento") or "Diagnóstico"),
         "chassis_types": hw.get("chassis_types", []),
         "bios": {
+            "proveedor": hw.get("bios_fabricante") or hw.get("mb_fabricante"),
             "version": hw.get("bios_version"),
             "fecha":   hw.get("bios_fecha"),
         },
@@ -1440,6 +1492,7 @@ def construir_resumen_para_bd(
                 "servidor_kms": str(lic.get("servidor_kms") or ""),
             } if isinstance(hw.get("licencia_windows"), dict) else None,
         },
+        "errores_detectados": errores_detectados,
         "diagnostico_codigo": diag.get("codigo"),
     }
 
