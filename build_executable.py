@@ -43,6 +43,16 @@ def main() -> int:
         "customtkinter",
         "--hidden-import",
         "core.security",
+        "--hidden-import",
+        "ui",
+        "--hidden-import",
+        "ui.dashboard_tabs",
+        "--hidden-import",
+        "ui.diagnostico_views",
+        "--hidden-import",
+        "ui.stress_y_arbol",
+        "--hidden-import",
+        "ui.modales",
         "main.py",
     ]
 

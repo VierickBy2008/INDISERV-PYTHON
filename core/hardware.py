@@ -22,9 +22,62 @@ import json
 import time
 import re
 import datetime
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import psutil
 from typing import Any
+
+_WMI_BATCH_CLASSES: dict[str, list[str]] = {
+    "Win32_BaseBoard": ["Manufacturer", "Product"],
+    "Win32_BIOS": ["Manufacturer", "SMBIOSBIOSVersion", "ReleaseDate"],
+    "Win32_SystemEnclosure": ["ChassisTypes"],
+    "Win32_ComputerSystem": ["PCSystemType", "Manufacturer", "Model", "SystemFamily", "SystemSKUNumber"],
+    "Win32_ComputerSystemProduct": ["Vendor", "Name", "Version"],
+    "Win32_Processor": ["Name", "NumberOfCores", "NumberOfLogicalProcessors"],
+    "Win32_PhysicalMemory": ["Capacity", "Speed", "SMBIOSMemoryType", "DeviceLocator", "BankLabel"],
+    "Win32_VideoController": ["Name", "AdapterRAM", "DriverVersion", "VideoProcessor"],
+    "Win32_DiskDrive": ["Model", "MediaType", "InterfaceType", "Size", "SerialNumber"],
+}
+_WMI_SCAN_CACHE: dict[str, list[dict[str, Any]]] | None = None
+_WMI_CACHE_LOCK = threading.Lock()
+
+
+def _wmi_batch_prefetch() -> dict[str, list[dict[str, Any]]]:
+    """Consulta todas las clases CIM de Windows en un único proceso PowerShell."""
+    if sys.platform != "win32":
+        return {}
+    blocks = []
+    for cls, props in _WMI_BATCH_CLASSES.items():
+        pstr = ", ".join(props)
+        blocks.append(f"'{cls}' = @(Get-CimInstance -ClassName {cls} -ErrorAction SilentlyContinue | Select-Object {pstr})")
+    script = "$r = [ordered]@{\n" + "\n".join(blocks) + "\n}; $r | ConvertTo-Json -Depth 3 -Compress"
+    try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        res = subprocess.run(
+            ["powershell", "-NonInteractive", "-NoProfile", "-Command", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=14,
+            creationflags=creation_flags,
+        )
+        if res.returncode != 0 or not res.stdout.strip():
+            return {}
+        parsed = json.loads(res.stdout.strip())
+        out: dict[str, list[dict[str, Any]]] = {}
+        if isinstance(parsed, dict):
+            for k, v in parsed.items():
+                if isinstance(v, list):
+                    out[k] = [x for x in v if isinstance(x, dict)]
+                elif isinstance(v, dict):
+                    out[k] = [v]
+                else:
+                    out[k] = []
+        return out
+    except Exception:
+        return {}
 
 
 def _run_cmd(args: list[str], timeout: int = 5) -> str:
@@ -60,12 +113,14 @@ def _read_sys_file(path: str) -> str:
 
 def _wmi_query(clase_wmi: str, propiedades: list[str]) -> list[dict[str, Any]]:
     """
-    Ejecuta Get-CimInstance <clase_wmi> en PowerShell (solo Windows) y devuelve
-    una lista de dicts con las propiedades solicitadas.
-    En Linux o macOS retorna [] inmediatamente.
+    Devuelve registros CIM de Windows usando la caché en lote del escaneo activo
+    o ejecutando Get-CimInstance bajo demanda. En Linux/macOS retorna [].
     """
     if sys.platform != "win32":
         return []
+    with _WMI_CACHE_LOCK:
+        if _WMI_SCAN_CACHE is not None and clase_wmi in _WMI_SCAN_CACHE:
+            return _WMI_SCAN_CACHE[clase_wmi]
     props_str = ", ".join(propiedades)
     script = (
         f"Get-CimInstance -ClassName {clase_wmi} | "
@@ -447,11 +502,16 @@ def _escanear_almacenamiento() -> dict[str, Any]:
         interfaz = (d.get("InterfaceType") or "").upper()
         media = (d.get("MediaType") or "").lower()
 
-        if "nvme" in (d.get("Model") or "").lower() or "nvme" in interfaz:
+        model_low = (d.get("Model") or "").lower()
+        if (
+            "nvme" in model_low
+            or "nvme" in interfaz
+            or any(p in model_low for p in ("mtfdk", "mzvl", "kbg", "kxg", "bc711", "pc711", "pc801", "hfm", "sn5", "sn7", "sn8"))
+        ):
             tipo_disco = "NVMe SSD"
         elif interfaz in ("USB", "1394"):
             tipo_disco = "Externo USB"
-        elif "ssd" in media or "solid" in media:
+        elif "ssd" in media or "solid" in media or "ssd" in model_low:
             tipo_disco = "SATA SSD"
         else:
             tipo_disco = "HDD"
@@ -1221,18 +1281,34 @@ class LectorHardware:
     @staticmethod
     def escanear_entorno() -> dict[str, Any]:
         """
-        Recopila telemetría completa de la máquina.
-        Garantiza retrocompatibilidad con las claves originales.
+        Recopila telemetría completa de la máquina usando prefetch CIM en lote
+        y ejecución paralela para reducir drásticamente el tiempo de escaneo.
         """
-        mb = _escanear_motherboard_bios()
-        tipo_eq = _escanear_tipo_equipo()
-        modelo_eq = _escanear_modelo_equipo(mb, tipo_eq.get("tipo_equipo", "desktop"))
-        cpu = _escanear_cpu()
-        ram = _escanear_ram()
-        gpu = _escanear_gpu()
-        storage = _escanear_almacenamiento()
-        red = _escanear_red_y_so()
-        licencia_win = _escanear_licencia_windows()
+        global _WMI_SCAN_CACHE
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            fut_wmi = pool.submit(_wmi_batch_prefetch)
+            fut_lic = pool.submit(_escanear_licencia_windows)
+            fut_red = pool.submit(_escanear_red_y_so)
+
+            wmi_cache = fut_wmi.result()
+
+            with _WMI_CACHE_LOCK:
+                _WMI_SCAN_CACHE = wmi_cache if wmi_cache else None
+            try:
+                mb = _escanear_motherboard_bios()
+                tipo_eq = _escanear_tipo_equipo()
+                modelo_eq = _escanear_modelo_equipo(mb, tipo_eq.get("tipo_equipo", "desktop"))
+                cpu = _escanear_cpu()
+                ram = _escanear_ram()
+                gpu = _escanear_gpu()
+                storage = _escanear_almacenamiento()
+            finally:
+                with _WMI_CACHE_LOCK:
+                    _WMI_SCAN_CACHE = None
+
+            red = fut_red.result()
+            licencia_win = fut_lic.result()
 
         datos: dict[str, Any] = {}
         datos.update(mb)

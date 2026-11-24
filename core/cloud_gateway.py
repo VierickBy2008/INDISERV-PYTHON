@@ -8,6 +8,7 @@ Logging explícito en consola para depuración de errores HTTP.
 from __future__ import annotations
 
 import traceback
+import threading
 import json as _json
 from typing import Any
 
@@ -20,10 +21,18 @@ TABLA_TICKETS = "reportes_diagnostico"
 TABLA_PADRON  = "padron_oficial"
 TABLA_USUARIOS = "usuarios_app"
 
+_CLIENT_LOCK = threading.Lock()
+_CLIENT_INSTANCE: Client | None = None
+
 
 def _get_client() -> Client:
-    """Crea y devuelve el cliente Supabase. Puede lanzar excepción si las credenciales son inválidas."""
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    """Devuelve una instancia singleton thread-safe del cliente Supabase reutilizando conexiones HTTP."""
+    global _CLIENT_INSTANCE
+    if _CLIENT_INSTANCE is None:
+        with _CLIENT_LOCK:
+            if _CLIENT_INSTANCE is None:
+                _CLIENT_INSTANCE = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return _CLIENT_INSTANCE
 
 
 class CloudGateway:
