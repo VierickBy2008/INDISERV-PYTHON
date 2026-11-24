@@ -22,12 +22,16 @@
 - [x] Crear `IndiServ_Python/core/security.py` y `IndiServ_Web3D/src/utils/security.js` (hashing compatible Python/JS, rate-limit de login, motor de disparo y consulta de Honeytokens).
 - [x] Aplicar parches de seguridad en `IndiServ_Python` (`cloud_gateway.py`, `hardware.py`, `main.py`, `.env.example`) y migrar hashes de `usuarios_app` en Supabase.
 - [x] Aplicar parches de seguridad y honeytokens en `IndiServ_Web3D` (`.gitignore`, `.env.example`, `MobileAuthView.jsx`, `TicketLookupBar.jsx`, `cloudHistory.js`, `App.jsx`, `analizar-dispositivo-ia/index.ts`).
+- [x] Añadir cabeceras HTTP de seguridad en `IndiServ_Web3D/vercel.json` (`Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Strict-Transport-Security`).
+- [x] Restringir CORS por lista blanca de orígenes y añadir Rate-Limiting por IP (`12 req/min`) en `analizar-dispositivo-ia/index.ts`.
+- [x] Persistir bloqueo antibruteforce en `localStorage` (Web/Android) y en disco temporal (Desktop), eliminar `.update()` de contraseñas en cliente y migrar login/registro a arquitectura RPC-first (`autenticar_usuario`, `verificar_padron_dni`, `registrar_usuario_seguro`).
+- [x] Generar script SQL `supabase_rls_hardening.sql` / `20261124_rls_hardening.sql` con Row Level Security (RLS) y funciones `SECURITY DEFINER`, y desvincular `.env` del índice Git en `IndiServ_Python`.
 - [x] Verificar con pruebas reales de login, disparo de honeytokens, `py_compile`, `npm run build` + `npx cap sync android` y `git push` en ambos repositorios.
 
 ## Evidence
 - `HASH_MIGRATION_OK`: las 7 cuentas existentes en `usuarios_app` fueron migradas de texto plano a `indiserv_v1$<sha256_salted>` y se sembró el ticket canario `0000-ADMIN-ROOT` en `reportes_diagnostico`.
-- `IndiServ_Python`: `py_compile` + pruebas unitarias de hash, verificación, rate-limit y honeytokens OK.
-- `IndiServ_Web3D`: `vite build` (`✓ built in 3.30s`), `npx cap sync android` y verificación cruzada de hash WebCrypto === Python `hashlib` (`indiserv_v1$baef17bc...`).
+- `IndiServ_Python` (`d4452e3`): `py_compile` + pruebas unitarias de hash, verificación, rate-limit persistente, login RPC-first y `.env` desvinculado de Git (`git rm --cached .env`).
+- `IndiServ_Web3D` (`15422c4`): `vercel.json` con 7 cabeceras HTTP de seguridad, CORS y Rate-Limit en Edge Function, `vite build` (`✓ built in 1.70s`) y `npx cap sync android` (`0.268s`).
 
 ## Next
 Monitorear las alertas de intrusión desde el botón **🍯 Alertas Honeytoken** dentro de **🔒 Mis Tickets** (Desktop y Android/Web).
