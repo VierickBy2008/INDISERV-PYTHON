@@ -41,6 +41,8 @@ def main() -> int:
         f"assets{sep}assets",
         "--collect-all",
         "customtkinter",
+        "--hidden-import",
+        "core.security",
         "main.py",
     ]
 
