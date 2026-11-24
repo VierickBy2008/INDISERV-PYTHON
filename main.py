@@ -677,49 +677,121 @@ class AppIndiServ(ctk.CTk):
             t_score, lbl_score = "err", f"Salud Global: {score}/100 · Crítico"
 
         frame = ctk.CTkFrame(
-            self, corner_radius=0,
-            fg_color=P["bg"], border_width=1, border_color=P["borde"]
+            self, corner_radius=14,
+            fg_color=P["bg"], border_width=1, border_color=P["borde_fuerte"]
         )
         frame.place(relx=0.5, rely=0.5, relwidth=0.96, relheight=0.94, anchor="center")
 
         topbar = ctk.CTkFrame(
-            frame, fg_color=P["surface"], corner_radius=10,
+            frame, fg_color=P["surface"], corner_radius=11,
             border_width=1, border_color=P["borde"]
         )
-        topbar.pack(fill="x", padx=12, pady=(10, 6))
+        topbar.pack(side="top", fill="x", padx=14, pady=(12, 8))
 
         izq = ctk.CTkFrame(topbar, fg_color="transparent")
-        izq.pack(side="left", padx=14, pady=8)
+        izq.pack(side="left", padx=14, pady=9)
         fila_tit = ctk.CTkFrame(izq, fg_color="transparent")
         fila_tit.pack(anchor="w")
         p_dot = PuntoPulso(fila_tit, color=P["primario"])
-        p_dot.pack(side="left", padx=(0, 6))
+        p_dot.pack(side="left", padx=(0, 7))
         p_dot.iniciar()
         ctk.CTkLabel(
-            fila_tit, text="Consola Central de Operaciones",
+            fila_tit, text="IndiServ Analytica",
             font=F_H2, text_color=P["texto"]
         ).pack(side="left")
-        Badge(fila_tit, f"Operador: {self.dni_usuario_activo or 'LOCAL'}", tipo="info").pack(
-            side="left", padx=(10, 0)
+        ctk.CTkLabel(
+            fila_tit, text="·  Consola de Diagnóstico",
+            font=F_SMALL, text_color=P["texto_dim"]
+        ).pack(side="left", padx=(6, 0))
+        Badge(fila_tit, f"ID {self.dni_usuario_activo or 'LOCAL'}", tipo="info").pack(
+            side="left", padx=(12, 0)
         )
         Badge(fila_tit, lbl_score, tipo=t_score).pack(side="left", padx=(8, 0))
 
         der = ctk.CTkFrame(topbar, fg_color="transparent")
-        der.pack(side="right", padx=12, pady=8)
+        der.pack(side="right", padx=12, pady=9)
         self._btn_fullscreen = boton(
             der, self._texto_btn_fullscreen(), self.alternar_pantalla_completa,
-            variante="neutro", width=136, height=30, font=F_SMALL
+            variante="util", width=136, height=32, font=F_SMALL
         )
         self._btn_fullscreen.pack(side="left", padx=(0, 6))
         boton(der, "⟳ Re-escanear", self._reescanear_rapido,
-              variante="neutro", width=118, height=30, font=F_SMALL).pack(side="left", padx=(0, 6))
+              variante="util", width=118, height=32, font=F_SMALL,
+              hover_border_color=P["cian"]).pack(side="left", padx=(0, 6))
         boton(der, "Cerrar Sesión", self.pantalla_login,
-              variante="peligro", width=118, height=30, font=F_SMALL).pack(side="left")
+              variante="peligro", width=116, height=32, font=F_SMALL).pack(side="left")
+
+        # Empaquetar el Command Dock ANTES del Tabview con side="bottom" garantiza
+        # que nunca se recorte verticalmente en ninguna resolución ni en pantalla completa.
+        dock = ctk.CTkFrame(
+            frame, fg_color=P["surface"], corner_radius=12,
+            border_width=1, border_color=P["borde"]
+        )
+        dock.pack(side="bottom", fill="x", padx=14, pady=(6, 12))
+
+        fila1 = ctk.CTkFrame(dock, fg_color="transparent")
+        fila1.pack(fill="x", padx=12, pady=(10, 6))
+        for col in range(4):
+            fila1.grid_columnconfigure(col, weight=1, uniform="diag_primary")
+
+        boton(
+            fila1, "▶  Árbol de Diagnóstico", self.iniciar_diagnostico,
+            variante="primario", height=40, font=F_H3,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        boton(
+            fila1, "◈  Diagnóstico Multisíntoma", self.pantalla_multisintoma,
+            variante="modulo", height=40, font=F_H3,
+            hover_border_color=P["cian"],
+        ).grid(row=0, column=1, sticky="ew", padx=6)
+        boton(
+            fila1, "✦  Buscador Asistido IA", self.pantalla_buscador,
+            variante="modulo", height=40, font=F_H3,
+            hover_border_color=P["azul_h"],
+        ).grid(row=0, column=2, sticky="ew", padx=6)
+        boton(
+            fila1, "⚡  Micro-Stress Test CPU", self.pantalla_stress_test,
+            variante="modulo", height=40, font=F_H3,
+            hover_border_color=P["violeta_h"],
+        ).grid(row=0, column=3, sticky="ew", padx=(6, 0))
+
+        ctk.CTkFrame(dock, height=1, fg_color=P["borde"]).pack(fill="x", padx=12, pady=(2, 6))
+
+        fila2 = ctk.CTkFrame(dock, fg_color="transparent")
+        fila2.pack(fill="x", padx=12, pady=(0, 10))
+        for col in range(5):
+            fila2.grid_columnconfigure(col, weight=1, uniform="diag_util")
+
+        boton(
+            fila2, "Mapa 2D Hardware",
+            lambda: self._abrir_mapa_desde_vista("", self.pantalla_dashboard),
+            variante="util", height=34, font=F_SMALL,
+            hover_border_color=P["ambar"],
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        boton(
+            fila2, "Gemelo Digital 3D", self.abrir_visor_3d,
+            variante="util", height=34, font=F_SMALL,
+            hover_border_color=P["cian"],
+        ).grid(row=0, column=1, sticky="ew", padx=5)
+        boton(
+            fila2, "Mis Tickets Privados", self.modal_mis_tickets,
+            variante="util", height=34, font=F_SMALL,
+            hover_border_color=P["primario"],
+        ).grid(row=0, column=2, sticky="ew", padx=5)
+        boton(
+            fila2, "Sugerencias", self.modal_sugerencias,
+            variante="util", height=34, font=F_SMALL,
+            hover_border_color=P["borde_fuerte"],
+        ).grid(row=0, column=3, sticky="ew", padx=5)
+        boton(
+            fila2, "Privacidad y Legal", self.modal_politica_privacidad,
+            variante="util", height=34, font=F_SMALL,
+            hover_border_color=P["borde_fuerte"],
+        ).grid(row=0, column=4, sticky="ew", padx=(5, 0))
 
         self.tabs_dashboard = ctk.CTkTabview(
             frame, **estilo_tabview()
         )
-        self.tabs_dashboard.pack(fill="both", expand=True, pady=(0, 6), padx=12)
+        self.tabs_dashboard.pack(side="top", fill="both", expand=True, pady=(0, 4), padx=14)
 
         for nombre in ("General", "CPU / RAM", "Gráficos", "Discos", "Red"):
             self.tabs_dashboard.add(nombre)
@@ -729,39 +801,6 @@ class AppIndiServ(ctk.CTk):
         self._tab_graficos(self.tabs_dashboard.tab("Gráficos"), hw)
         self._tab_discos(self.tabs_dashboard.tab("Discos"), hw)
         self._tab_red(self.tabs_dashboard.tab("Red"), hw)
-
-        dock = ctk.CTkFrame(
-            frame, fg_color=P["surface"], corner_radius=10,
-            border_width=1, border_color=P["borde"]
-        )
-        dock.pack(fill="x", padx=12, pady=(0, 10))
-
-        fila1 = ctk.CTkFrame(dock, fg_color="transparent")
-        fila1.pack(pady=(8, 4))
-
-        boton(fila1, "1. Árbol de Diagnóstico", self.iniciar_diagnostico,
-              variante="primario", width=215, height=36).grid(row=0, column=0, padx=5)
-        boton(fila1, "2. Diagnóstico Multisíntoma", self.pantalla_multisintoma,
-              variante="azul", width=225, height=36).grid(row=0, column=1, padx=5)
-        boton(fila1, "3. Buscador Asistido IA", self.pantalla_buscador,
-              variante="azul", width=215, height=36).grid(row=0, column=2, padx=5)
-        boton(fila1, "4. Micro-Stress Test CPU", self.pantalla_stress_test,
-              variante="violeta", width=215, height=36).grid(row=0, column=3, padx=5)
-
-        fila2 = ctk.CTkFrame(dock, fg_color="transparent")
-        fila2.pack(pady=(2, 8))
-
-        boton(fila2, "🗺️ Mapa 2D de Hardware",
-              lambda: self._abrir_mapa_desde_vista("", self.pantalla_dashboard),
-              variante="ambar", width=175, height=32, font=F_SMALL).grid(row=0, column=0, padx=4)
-        boton(fila2, "🌐 Visor Gemelo 3D", self.abrir_visor_3d,
-              variante="neutro", width=165, height=32, font=F_SMALL).grid(row=0, column=1, padx=4)
-        boton(fila2, "🔒 Mis Tickets", self.modal_mis_tickets,
-              variante="azul", width=155, height=32, font=F_SMALL).grid(row=0, column=2, padx=4)
-        boton(fila2, "5. Sugerencias", self.modal_sugerencias,
-              variante="neutro", width=150, height=32, font=F_SMALL).grid(row=0, column=3, padx=4)
-        boton(fila2, "🛡️ Privacidad", self.modal_politica_privacidad,
-              variante="fantasma", width=140, height=32, font=F_SMALL).grid(row=0, column=4, padx=4)
 
     def _reescanear_rapido(self):
         toast(self, "Actualizando telemetría del equipo en segundo plano…", tipo="info", duracion_ms=1800)

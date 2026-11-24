@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 import tkinter as tk
 from typing import Callable
 
@@ -18,49 +19,65 @@ import customtkinter as ctk
 FRAME_MS: int = 16
 
 P = {
-    "bg":          "#0b0f19",
-    "surface":     "#0f172a",
-    "card":        "#131c2e",
-    "card_alt":    "#172238",
-    "borde":       "#1e293b",
-    "borde_fuerte": "#334155",
-    "texto":       "#e2e8f0",
+    "bg":          "#090c12",
+    "surface":     "#101521",
+    "card":        "#141b2a",
+    "card_alt":    "#192235",
+    "borde":       "#222d42",
+    "borde_fuerte": "#334361",
+    "texto":       "#f1f5f9",
     "texto_sec":   "#94a3b8",
     "texto_dim":   "#64748b",
     "primario":    "#10b981",
-    "primario_h":  "#059669",
-    "cian":        "#06b6d4",
+    "primario_h":  "#22c993",
+    "primario_p":  "#059669",
+    "cian":        "#22d3ee",
     "azul":        "#2563eb",
-    "azul_h":      "#1d4ed8",
+    "azul_h":      "#3b82f6",
     "violeta":     "#8b5cf6",
-    "violeta_h":   "#7c3aed",
+    "violeta_h":   "#a78bfa",
     "ambar":       "#f59e0b",
-    "ambar_h":     "#d97706",
+    "ambar_h":     "#fbbf24",
     "rojo":        "#ef4444",
     "rojo_h":      "#dc2626",
-    "neutro":      "#334155",
-    "neutro_h":    "#475569",
-    "ok_bg":       "#052e22",
-    "warn_bg":     "#3a1d04",
-    "err_bg":      "#3b0a0a",
-    "info_bg":     "#072a3d",
+    "neutro":      "#1e293b",
+    "neutro_h":    "#2b3a54",
+    "ok_bg":       "#062e22",
+    "warn_bg":     "#381e06",
+    "err_bg":      "#3b0d0d",
+    "info_bg":     "#08293d",
 }
 
-F_H1      = ("Segoe UI Semibold", 22)
-F_H2      = ("Segoe UI Semibold", 17)
-F_H3      = ("Segoe UI Semibold", 13)
-F_BODY    = ("Segoe UI", 12)
-F_SMALL   = ("Segoe UI", 11)
-F_CAPTION = ("Segoe UI", 10)
-F_MONO    = ("Consolas", 11)
-F_METRIC  = ("Segoe UI Semibold", 20)
+if sys.platform == "darwin":
+    _SANS = "SF Pro Text"
+    _SANS_BOLD = "SF Pro Display"
+    _MONO = "Menlo"
+elif sys.platform.startswith("linux"):
+    _SANS = "DejaVu Sans"
+    _SANS_BOLD = "DejaVu Sans"
+    _MONO = "DejaVu Sans Mono"
+else:
+    _SANS = "Segoe UI"
+    _SANS_BOLD = "Segoe UI Semibold"
+    _MONO = "Consolas"
+
+F_H1      = (_SANS_BOLD, 22, "bold") if sys.platform.startswith("linux") else (_SANS_BOLD, 22)
+F_H2      = (_SANS_BOLD, 16, "bold") if sys.platform.startswith("linux") else (_SANS_BOLD, 17)
+F_H3      = (_SANS_BOLD, 12, "bold") if sys.platform.startswith("linux") else (_SANS_BOLD, 13)
+F_BODY    = (_SANS, 12)
+F_SMALL   = (_SANS, 11)
+F_CAPTION = (_SANS, 10)
+F_MONO    = (_MONO, 11)
+F_METRIC  = (_SANS_BOLD, 20, "bold") if sys.platform.startswith("linux") else (_SANS_BOLD, 20)
 
 _VARIANTES = {
-    "primario":   (P["primario"], P["primario_h"], "#04140e"),
+    "primario":   (P["primario"], P["primario_h"], "#03160f"),
+    "modulo":     ("#172033", "#202e48", P["texto"]),
+    "util":       ("#111724", "#1a2438", "#cbd5e1"),
     "azul":       (P["azul"], P["azul_h"], "#ffffff"),
     "violeta":    (P["violeta"], P["violeta_h"], "#ffffff"),
     "ambar":      (P["ambar"], P["ambar_h"], "#1a1002"),
-    "peligro":    (P["rojo"], P["rojo_h"], "#ffffff"),
+    "peligro":    ("#3b1218", "#571a23", "#fca5a5"),
     "neutro":     (P["neutro"], P["neutro_h"], P["texto"]),
     "fantasma":   ("transparent", P["card_alt"], P["texto_sec"]),
 }
@@ -206,33 +223,54 @@ def _adjuntar_hover_borde_60fps(widget, color_base: str, color_hover: str, pasos
 def boton(parent, texto: str, comando: Callable | None = None,
           variante: str = "primario", **kw) -> ctk.CTkButton:
     fg, hover, txt = _VARIANTES.get(variante, _VARIANTES["primario"])
+    hover_borde = kw.pop("hover_border_color", None)
     opciones = dict(
         text=texto, command=comando, fg_color=fg, hover_color=hover,
-        text_color=txt, corner_radius=8, height=36, font=F_H3,
+        text_color=txt, corner_radius=9, height=36, font=F_H3,
     )
-    if variante == "fantasma":
+    if variante == "modulo":
         opciones.update(border_width=1, border_color=P["borde_fuerte"])
+        hover_borde = hover_borde or P["cian"]
+    elif variante == "util":
+        opciones.update(border_width=1, border_color=P["borde"])
+        hover_borde = hover_borde or P["borde_fuerte"]
+    elif variante == "peligro":
+        opciones.update(border_width=1, border_color="#7f1d1d")
+        hover_borde = hover_borde or P["rojo"]
+    elif variante == "neutro":
+        opciones.update(border_width=1, border_color=P["borde_fuerte"])
+        hover_borde = hover_borde or P["cian"]
+    elif variante == "fantasma":
+        opciones.update(border_width=1, border_color=P["borde_fuerte"])
+        hover_borde = hover_borde or P["cian"]
     opciones.update(kw)
     btn = ctk.CTkButton(parent, **opciones)
+    borde_base = opciones.get("border_color", P["borde_fuerte"])
 
     if fg != "transparent":
-        est = {"t": 0.0, "target": 0.0, "after": None}
+        press_col = _lerp_hex(fg, "#000000", 0.24)
+        est = {"t": 0.0, "target": 0.0, "after": None, "pressed": False}
 
         def _anim_bg():
-            if not _vivo(btn):
+            if not _vivo(btn) or est["pressed"]:
+                est["after"] = None
                 return
             diff = est["target"] - est["t"]
-            if abs(diff) < 0.08:
+            if abs(diff) < 0.06:
                 est["t"] = est["target"]
                 try:
                     btn.configure(fg_color=_lerp_hex(fg, hover, est["t"]))
+                    if hover_borde and opciones.get("border_width", 0):
+                        btn.configure(border_color=_lerp_hex(borde_base, hover_borde, est["t"]))
                 except Exception:
                     pass
                 est["after"] = None
                 return
-            est["t"] += diff * 0.38
+            est["t"] += diff * 0.42
             try:
                 btn.configure(fg_color=_lerp_hex(fg, hover, est["t"]))
+                if hover_borde and opciones.get("border_width", 0):
+                    btn.configure(border_color=_lerp_hex(borde_base, hover_borde, est["t"]))
             except Exception:
                 est["after"] = None
                 return
@@ -240,21 +278,38 @@ def boton(parent, texto: str, comando: Callable | None = None,
 
         def _enter(_e=None):
             est["target"] = 1.0
-            if est["after"] is None and _vivo(btn):
+            if not est["pressed"] and est["after"] is None and _vivo(btn):
                 est["after"] = btn.after(FRAME_MS, _anim_bg)
 
         def _leave(_e=None):
             est["target"] = 0.0
+            est["pressed"] = False
+            if est["after"] is None and _vivo(btn):
+                est["after"] = btn.after(FRAME_MS, _anim_bg)
+
+        def _press(_e=None):
+            est["pressed"] = True
+            try:
+                btn.configure(fg_color=press_col)
+                if hover_borde and opciones.get("border_width", 0):
+                    btn.configure(border_color=hover_borde)
+            except Exception:
+                pass
+
+        def _release(_e=None):
+            est["pressed"] = False
             if est["after"] is None and _vivo(btn):
                 est["after"] = btn.after(FRAME_MS, _anim_bg)
 
         try:
             btn.bind("<Enter>", _enter, add="+")
             btn.bind("<Leave>", _leave, add="+")
+            btn.bind("<ButtonPress-1>", _press, add="+")
+            btn.bind("<ButtonRelease-1>", _release, add="+")
         except Exception:
             pass
     else:
-        _adjuntar_hover_borde_60fps(btn, P["borde_fuerte"], P["cian"])
+        _adjuntar_hover_borde_60fps(btn, borde_base, hover_borde or P["cian"])
 
     return btn
 
@@ -273,13 +328,18 @@ def tarjeta(parent, alt: bool = False, **kw) -> ctk.CTkFrame:
 
 def entrada(parent, placeholder: str, **kw) -> ctk.CTkEntry:
     opciones = dict(
-        placeholder_text=placeholder, height=38, corner_radius=8,
+        placeholder_text=placeholder, height=38, corner_radius=9,
         fg_color=P["surface"], border_color=P["borde_fuerte"], border_width=1,
         text_color=P["texto"], placeholder_text_color=P["texto_dim"], font=F_BODY,
     )
     opciones.update(kw)
     ent = ctk.CTkEntry(parent, **opciones)
     _adjuntar_hover_borde_60fps(ent, P["borde_fuerte"], P["cian"])
+    try:
+        ent.bind("<FocusIn>", lambda _e: ent.configure(border_color=P["cian"]), add="+")
+        ent.bind("<FocusOut>", lambda _e: ent.configure(border_color=P["borde_fuerte"]), add="+")
+    except Exception:
+        pass
     return ent
 
 
@@ -298,7 +358,8 @@ def etiqueta(parent, texto: str, estilo: str = "body", **kw) -> ctk.CTkLabel:
 
 def overline(parent, texto: str, color: str | None = None) -> ctk.CTkLabel:
     """Rótulo pequeño en mayúsculas para encabezar secciones/tarjetas."""
-    return ctk.CTkLabel(parent, text=texto.upper(), font=("Segoe UI Semibold", 9),
+    fnt = (_SANS_BOLD, 9, "bold") if sys.platform.startswith("linux") else (_SANS_BOLD, 9)
+    return ctk.CTkLabel(parent, text=texto.upper(), font=fnt,
                         text_color=color or P["texto_dim"], anchor="w")
 
 
