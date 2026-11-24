@@ -645,7 +645,15 @@ def _tiene_firma_portatil(hw: dict[str, Any]) -> bool:
     """
     texto = " ".join(
         str(hw.get(k, "") or "")
-        for k in ("nombre_cpu", "gpu_principal", "mb_fabricante", "mb_modelo", "ram_tipo")
+        for k in (
+            "nombre_cpu",
+            "gpu_principal",
+            "mb_fabricante",
+            "mb_modelo",
+            "ram_tipo",
+            "equipo_modelo_comercial",
+            "equipo_familia",
+        )
     ).lower()
     if any(
         kw in texto
@@ -658,8 +666,20 @@ def _tiene_firma_portatil(hw: dict[str, Any]) -> bool:
             "thinkpad",
             "ideapad",
             "legion",
+            "loq",
             "zenbook",
             "vivobook",
+            "rog ",
+            "tuf gaming a",
+            "tuf gaming f",
+            "nitro ",
+            "pavilion",
+            "victus",
+            "inspiron",
+            "latitude",
+            "xps ",
+            "swift ",
+            "matebook",
             "lnvnb",
             "fa506",
             "fx505",
@@ -676,6 +696,210 @@ def _tiene_firma_portatil(hw: dict[str, Any]) -> bool:
     if re.search(r"\b(?:i[3579]-|ryzen\s+[3579]\s+|ultra\s+[579]\s+)?\d{4,5}(?:hs|hx|h|u|g[1-7])\b", texto):
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Detección de Modelo Comercial del Equipo (Windows, Linux y macOS — 100% offline)
+# ---------------------------------------------------------------------------
+
+_OEM_INVALIDOS = {
+    "",
+    "none",
+    "null",
+    "unknown",
+    "n/a",
+    "na",
+    "invalid",
+    "default string",
+    "system product name",
+    "system manufacturer",
+    "system version",
+    "to be filled by o.e.m.",
+    "to be filled by oem",
+    "not applicable",
+    "not specified",
+    "base board product name",
+    "oem",
+    "0",
+    "1.0",
+}
+
+_MARCAS_NORM = (
+    ("asustek", "ASUS"),
+    ("micro-star", "MSI"),
+    ("hewlett-packard", "HP"),
+    ("hp inc", "HP"),
+    ("dell inc", "Dell"),
+    ("apple inc", "Apple"),
+    ("acer incorporated", "Acer"),
+    ("gigabyte technology", "GIGABYTE"),
+    ("huawei technologies", "HUAWEI"),
+)
+
+
+def _limpiar_campo_oem(valor: Any) -> str:
+    txt = str(valor or "").strip()
+    if not txt:
+        return ""
+    if txt.lower() in _OEM_INVALIDOS:
+        return ""
+    if "to be filled" in txt.lower() or "default string" in txt.lower():
+        return ""
+    return txt
+
+
+def _normalizar_marca_oem(marca: str) -> str:
+    limpia = _limpiar_campo_oem(marca)
+    if not limpia:
+        return ""
+    low = limpia.lower()
+    for pref, norm in _MARCAS_NORM:
+        if pref in low:
+            return norm
+    return limpia
+
+
+def _resolver_modelo_comercial(
+    vendor: str = "",
+    model: str = "",
+    family: str = "",
+    version: str = "",
+    sku: str = "",
+    mb_fabricante: str = "",
+    mb_modelo: str = "",
+    tipo_equipo: str = "desktop",
+) -> dict[str, Any]:
+    """
+    Resuelve un nombre comercial legible para laptops/PCs OEM (Windows, Linux y macOS)
+    sin llamadas externas, filtrando cadenas genéricas y evitando duplicar la marca.
+    """
+    fab = _normalizar_marca_oem(vendor)
+    mod = _limpiar_campo_oem(model)
+    fam = _limpiar_campo_oem(family)
+    ver = _limpiar_campo_oem(version)
+    sku_clean = _limpiar_campo_oem(sku)
+
+    # Limpiar sufijos duplicados típicos de ASUS (ej. "FA506NF_FA506NF")
+    if "_" in mod:
+        partes_u = mod.split("_")
+        if len(partes_u) == 2 and partes_u[1] and partes_u[0].endswith(partes_u[1]):
+            mod = partes_u[0].strip()
+
+    es_oem = bool(mod or fam or ver)
+    nombre_comercial = ""
+    codigo_modelo = mod
+
+    if es_oem:
+        # Regla especial Lenovo: Model suele ser MTM corto ("83S0", "21CB000BUS") y Family/Version trae el nombre comercial
+        if fab.upper() == "LENOVO":
+            comercial_lenovo = ""
+            for cand in (ver, fam):
+                if cand and cand.lower() != mod.lower() and not re.match(r"^[0-9A-Z]{4,10}$", cand):
+                    comercial_lenovo = cand
+                    break
+            if comercial_lenovo:
+                base = comercial_lenovo if comercial_lenovo.lower().startswith("lenovo") else f"{fab} {comercial_lenovo}"
+                nombre_comercial = f"{base} ({mod})" if mod and mod.lower() not in base.lower() else base
+            elif mod:
+                nombre_comercial = mod if mod.lower().startswith("lenovo") else f"{fab} {mod}"
+            elif fam:
+                nombre_comercial = f"{fab} {fam}"
+
+        # Regla Apple macOS
+        elif fab.lower() == "apple":
+            base_mac = mod or fam or "Mac"
+            if not base_mac.lower().startswith("apple"):
+                base_mac = f"Apple {base_mac}"
+            if ver and ver.lower() not in base_mac.lower():
+                nombre_comercial = f"{base_mac} ({ver})"
+            else:
+                nombre_comercial = base_mac
+            codigo_modelo = ver or mod
+
+        # Regla general OEM (ASUS, HP, Dell, Acer, MSI, HUAWEI, etc.)
+        else:
+            principal = mod or fam or ver
+            if fam and principal and len(principal) <= 8 and fam.lower() != principal.lower() and not re.match(r"^[0-9A-Z_-]{2,8}$", fam):
+                principal = f"{fam} ({principal})"
+            if fab and fab.lower() not in principal.lower():
+                nombre_comercial = f"{fab} {principal}".strip()
+            else:
+                nombre_comercial = principal
+    else:
+        # PC ensamblada / genérica sin modelo comercial OEM válido
+        mb_fab_norm = _normalizar_marca_oem(mb_fabricante)
+        mb_mod_clean = _limpiar_campo_oem(mb_modelo)
+        if mb_fab_norm and mb_mod_clean:
+            placa_txt = mb_mod_clean if mb_fab_norm.lower() in mb_mod_clean.lower() else f"{mb_fab_norm} {mb_mod_clean}"
+        else:
+            placa_txt = mb_mod_clean or mb_fab_norm or "Placa Estándar"
+        pref_tipo = "Portátil" if tipo_equipo == "laptop" else "PC de Escritorio"
+        nombre_comercial = f"{pref_tipo} · {placa_txt}"
+        fab = mb_fab_norm or "Personalizado"
+
+    return {
+        "equipo_fabricante": fab or "Desconocido",
+        "equipo_modelo_comercial": nombre_comercial,
+        "equipo_familia": fam,
+        "equipo_codigo_modelo": codigo_modelo,
+        "equipo_sku": sku_clean,
+        "equipo_es_oem": es_oem,
+    }
+
+
+def _escanear_modelo_equipo(mb: dict[str, Any], tipo_equipo: str = "desktop") -> dict[str, Any]:
+    """Lee el modelo comercial real del equipo en Windows (WMI), Linux (DMI) o macOS."""
+    vendor = ""
+    model = ""
+    family = ""
+    version = ""
+    sku = ""
+
+    if sys.platform.startswith("linux"):
+        vendor = _read_sys_file("/sys/class/dmi/id/sys_vendor")
+        model = _read_sys_file("/sys/class/dmi/id/product_name")
+        family = _read_sys_file("/sys/class/dmi/id/product_family")
+        version = _read_sys_file("/sys/class/dmi/id/product_version")
+        sku = _read_sys_file("/sys/class/dmi/id/product_sku")
+
+    elif sys.platform == "darwin":
+        vendor = "Apple Inc."
+        hw_model = _run_cmd(["sysctl", "-n", "hw.model"]) or ""
+        model = hw_model
+        sp_out = _run_cmd(["system_profiler", "SPHardwareDataType", "-json"], timeout=6)
+        if sp_out:
+            try:
+                sp_items = json.loads(sp_out).get("SPHardwareDataType", [])
+                if sp_items:
+                    info = sp_items[0]
+                    model = info.get("machine_name") or model
+                    version = info.get("machine_model") or hw_model
+                    family = info.get("chip_type") or ""
+                    sku = info.get("model_number") or ""
+            except Exception:
+                pass
+
+    elif sys.platform == "win32":
+        cs = _wmi_query("Win32_ComputerSystem", ["Manufacturer", "Model", "SystemFamily", "SystemSKUNumber"])
+        csp = _wmi_query("Win32_ComputerSystemProduct", ["Vendor", "Name", "Version"])
+        cs0 = cs[0] if cs else {}
+        csp0 = csp[0] if csp else {}
+        vendor = cs0.get("Manufacturer") or csp0.get("Vendor") or ""
+        model = cs0.get("Model") or csp0.get("Name") or ""
+        family = cs0.get("SystemFamily") or ""
+        version = csp0.get("Version") or ""
+        sku = cs0.get("SystemSKUNumber") or ""
+
+    return _resolver_modelo_comercial(
+        vendor=str(vendor or ""),
+        model=str(model or ""),
+        family=str(family or ""),
+        version=str(version or ""),
+        sku=str(sku or ""),
+        mb_fabricante=str(mb.get("mb_fabricante") or ""),
+        mb_modelo=str(mb.get("mb_modelo") or ""),
+        tipo_equipo=tipo_equipo,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1045,6 +1269,7 @@ class LectorHardware:
         """
         mb = _escanear_motherboard_bios()
         tipo_eq = _escanear_tipo_equipo()
+        modelo_eq = _escanear_modelo_equipo(mb, tipo_eq.get("tipo_equipo", "desktop"))
         cpu = _escanear_cpu()
         ram = _escanear_ram()
         gpu = _escanear_gpu()
@@ -1056,6 +1281,7 @@ class LectorHardware:
         datos: dict[str, Any] = {}
         datos.update(mb)
         datos.update(tipo_eq)
+        datos.update(modelo_eq)
         datos.update(cpu)
         datos.update(ram)
         datos.update(gpu)
@@ -1191,18 +1417,26 @@ def construir_resumen_para_bd(
     ram_info   = f"{hw.get('ram_total_mb', '?')} {hw.get('ram_tipo', '')} @ {hw.get('ram_velocidad_mhz', '?')} MHz ({hw.get('ram_ranuras_ocupadas', '?')} ranuras)"
     gpu_info   = _formatear_gpu(hw)
     storage    = _formatear_almacenamiento(hw)
-    placa_base = f"{hw.get('mb_fabricante', '?')} {hw.get('mb_modelo', '?')}"
     refrig     = _inferir_refrigeracion(hw)
     hscore     = calcular_health_score(hw)
-
     # specs_json: snapshot extendido serializable (excluye listas anidadas complejas)
     tipo_final = hw.get("tipo_equipo")
     if tipo_final != "laptop" and _tiene_firma_portatil(hw):
         tipo_final = "laptop"
+
+    modelo_com = str(hw.get("equipo_modelo_comercial") or "").strip()
+    mb_mod_raw = str(hw.get("mb_modelo") or "?").strip()
+    if tipo_final == "laptop" and modelo_com and hw.get("equipo_es_oem"):
+        placa_base = f"{modelo_com} (Placa {mb_mod_raw})" if mb_mod_raw and mb_mod_raw != "?" else modelo_com
+    else:
+        placa_base = f"{hw.get('mb_fabricante', '?')} {mb_mod_raw}"
+
     clean_dni = str(owner_dni).strip() if owner_dni else ""
     lic = hw.get("licencia_windows") if isinstance(hw.get("licencia_windows"), dict) else {}
     specs_json: dict[str, Any] = {
         "tipo_equipo": tipo_final or "desktop",
+        "modelo_comercial": modelo_com or None,
+        "modelo_codigo": hw.get("equipo_codigo_modelo") or None,
         "owner_dni": clean_dni or None,
         "tipo_evento": str(diag.get("tipo_evento") or "Diagnóstico"),
         "chassis_types": hw.get("chassis_types", []),

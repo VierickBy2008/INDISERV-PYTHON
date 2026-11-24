@@ -734,6 +734,14 @@ class AppIndiServ(ctk.CTk):
             "Laptop / Portátil" if es_laptop else "PC de Escritorio",
             ("PORTÁTIL", "info") if es_laptop else ("ESCRITORIO", "info"),
         )
+        modelo_eq_txt = hw.get("equipo_modelo_comercial") or f"{hw.get('mb_fabricante', '?')} {hw.get('mb_modelo', '?')}"
+        es_oem = bool(hw.get("equipo_es_oem"))
+        badge_modelo = (
+            ("LAPTOP OEM", "info")
+            if (es_laptop and es_oem)
+            else (("EQUIPO OEM", "info") if es_oem else ("PERSONALIZADO", "neutro"))
+        )
+        self._fila_dato(c_mb, "Modelo del Equipo", modelo_eq_txt, badge_modelo)
         self._fila_dato(c_mb, "Fabricante Placa", hw.get("mb_fabricante", "N/A"))
         self._fila_dato(
             c_mb,
