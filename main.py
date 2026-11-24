@@ -32,6 +32,16 @@ def _resource_path(relative_path: str) -> str:
 
 from core.hardware import LectorHardware, calcular_health_score, _inferir_refrigeracion
 from core.cloud_gateway import CloudGateway
+from core.security import (
+    hash_password,
+    verify_password,
+    generate_secure_ticket_id,
+    check_login_rate_limit,
+    record_failed_login,
+    reset_login_rate_limit,
+    is_honey_credential,
+    trigger_honeytoken_alert,
+)
 from core.diagnostico import (
     MotorDiagnostico,
     MatrizSintomas,
@@ -156,13 +166,8 @@ class AppIndiServ(ctk.CTk):
             return default
 
     def _asegurar_ticket(self) -> str:
-        prefijo = (
-            self.dni_usuario_activo[:4]
-            if self.dni_usuario_activo and len(self.dni_usuario_activo) >= 4
-            else "USER"
-        )
         if not getattr(self, "ticket_id_actual", None):
-            self.ticket_id_actual = f"{prefijo}-TICKET-{random.randint(1000, 9999)}".strip()
+            self.ticket_id_actual = generate_secure_ticket_id(self.dni_usuario_activo, "TICKET")
         return str(self.ticket_id_actual).strip()
 
     def _registrar_evento_nube(
@@ -183,8 +188,7 @@ class AppIndiServ(ctk.CTk):
         if not dni:
             return None
         hw = self.hardware_detectado or {}
-        prefijo_dni = dni[:4] if len(dni) >= 4 else "USER"
-        t_id = (ticket_id_fijo or f"{prefijo_dni}-{prefijo_evento}-{random.randint(1000, 9999)}").strip()
+        t_id = (ticket_id_fijo or generate_secure_ticket_id(dni, prefijo_evento)).strip()
         diag_payload = {
             "codigo": codigo,
             "tipo_evento": tipo_evento,
@@ -331,18 +335,47 @@ class AppIndiServ(ctk.CTk):
             self.lbl_login_error.configure(text="⚠ Complete DNI, correo electrónico y contraseña.")
             return
 
+        permitido, espera_s = check_login_rate_limit()
+        if not permitido:
+            self.lbl_login_error.configure(
+                text=f"⏳ Demasiados intentos fallidos. Intente nuevamente en {espera_s} s."
+            )
+            return
+
+        if is_honey_credential(dni, correo):
+            trigger_honeytoken_alert(
+                tipo="CREDENCIAL_SENUELO_LOGIN_DESKTOP",
+                detalle=f"Intento de acceso a cuenta trampa DNI='{dni}' correo='{correo}'",
+            )
+            self.lbl_login_error.configure(text="✖ Credenciales incorrectas o cuenta inexistente.")
+            return
+
         if hasattr(self, "btn_ingresar"):
             self.btn_ingresar.configure(state="disabled", text="Verificando credenciales…")
         self.update_idletasks()
 
         cuenta = CloudGateway.consultar_usuario(dni)
-        if cuenta.get("registrado") and cuenta.get("correo") == correo and cuenta.get("password_hash") == password:
+        es_valida, migrar = verify_password(dni, password, str(cuenta.get("password_hash") or ""))
+        if cuenta.get("registrado") and cuenta.get("correo") == correo and es_valida:
+            reset_login_rate_limit()
+            if migrar:
+                nuevo_h = hash_password(dni, password)
+                threading.Thread(
+                    target=lambda: CloudGateway.actualizar_hash_usuario(dni, nuevo_h),
+                    daemon=True,
+                ).start()
             self.dni_usuario_activo = dni
             self._mostrar_splash_carga()
         else:
+            bloqueado, seg_lock = record_failed_login(dni, correo)
             if hasattr(self, "btn_ingresar"):
                 self.btn_ingresar.configure(state="normal", text="Ingresar a Consola de Operaciones  →")
-            self.lbl_login_error.configure(text="✖ Credenciales incorrectas o cuenta inexistente.")
+            if bloqueado:
+                self.lbl_login_error.configure(
+                    text=f"⏳ Cuenta protegida contra fuerza bruta. Espere {seg_lock} s."
+                )
+            else:
+                self.lbl_login_error.configure(text="✖ Credenciales incorrectas o cuenta inexistente.")
 
     def _mostrar_splash_carga(self):
         """Reemplaza el login por un indicador de carga mientras el hilo trabaja."""
@@ -489,6 +522,14 @@ class AppIndiServ(ctk.CTk):
             self.lbl_reg_error.configure(
                 text="⚠ Debe leer y aceptar la Política de Privacidad y Términos antes de registrarse."
             )
+            return
+
+        if is_honey_credential(dni, correo):
+            trigger_honeytoken_alert(
+                tipo="CREDENCIAL_SENUELO_REGISTRO_DESKTOP",
+                detalle=f"Intento de registro con identidad trampa DNI='{dni}' correo='{correo}'",
+            )
+            self.lbl_reg_error.configure(text="✖ El DNI no figura en el padrón oficial.")
             return
 
         padron = CloudGateway.consultar_padron(dni)
@@ -2264,12 +2305,7 @@ class AppIndiServ(ctk.CTk):
     def finalizar_diagnostico(self, dictamen):
         self.dictamen_final = dictamen
         self.arbol_fase = 2
-        prefijo = (
-            self.dni_usuario_activo[:4]
-            if self.dni_usuario_activo and len(self.dni_usuario_activo) >= 4
-            else "USER"
-        )
-        self.ticket_id_actual = f"{prefijo}-TICKET-{random.randint(1000, 9999)}".strip()
+        self.ticket_id_actual = generate_secure_ticket_id(self.dni_usuario_activo, "TICKET")
         self.ticket_sincronizado = True
         self._registrar_evento_nube(
             tipo_evento="Árbol Diagnóstico",
@@ -2633,12 +2669,49 @@ class AppIndiServ(ctk.CTk):
 
         threading.Thread(target=_cargar_en_hilo, daemon=True).start()
 
+        def _cargar_alertas():
+            alertas = CloudGateway.listar_alertas_honeytoken()
+
+            def _render_alertas():
+                if not v.winfo_exists():
+                    return
+                for w in scroll.winfo_children():
+                    w.destroy()
+                if not alertas:
+                    ctk.CTkLabel(
+                        scroll,
+                        text="✔ 0 alertas de Honeytoken disparadas.\nNingún intruso ha tocado las trampas señuelo.",
+                        font=F_SMALL, text_color=COLOR_OK, justify="center"
+                    ).pack(pady=28)
+                    return
+                for al in alertas:
+                    fila = ctk.CTkFrame(
+                        scroll, fg_color=P["surface"], corner_radius=8,
+                        border_width=1, border_color=P["rojo"]
+                    )
+                    fila.pack(fill="x", padx=6, pady=4)
+                    ctk.CTkLabel(
+                        fila,
+                        text=f"🍯 {al.get('id_ticket', 'HONEY')}  ·  {al.get('sugerencia', '')}",
+                        font=F_CAPTION, text_color=P["texto"], anchor="w", wraplength=580, justify="left"
+                    ).pack(fill="x", padx=10, pady=8)
+
+            try:
+                self.after(0, _render_alertas)
+            except Exception:
+                pass
+
         fila_b = ctk.CTkFrame(card, fg_color="transparent")
         fila_b.pack(pady=(6, 12))
         boton(
-            fila_b, "⟳ Actualizar",
+            fila_b, "⟳ Mis Tickets",
             lambda: threading.Thread(target=_cargar_en_hilo, daemon=True).start(),
             variante="neutro", width=130, height=32, font=F_SMALL
+        ).pack(side="left", padx=6)
+        boton(
+            fila_b, "🍯 Alertas Honeytoken",
+            lambda: threading.Thread(target=_cargar_alertas, daemon=True).start(),
+            variante="ambar", width=175, height=32, font=F_SMALL
         ).pack(side="left", padx=6)
         boton(
             fila_b, "Cerrar", v.destroy,

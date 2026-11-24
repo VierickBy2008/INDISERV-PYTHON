@@ -44,3 +44,12 @@ if "localhost" in WEB_VIEWER_URL or "127.0.0.1" in WEB_VIEWER_URL:
         stacklevel=1,
     )
     WEB_VIEWER_URL = _DEFAULT_WEB_VIEWER_URL
+
+for _canary_var in ("INDISERV_ADMIN_MASTER_KEY", "SUPABASE_SERVICE_ROLE_CANARY"):
+    _val = os.getenv(_canary_var, "").strip()
+    if _val and ("canary" in _val.lower() or _val.startswith("ag_canary_")):
+        try:
+            from core.security import trigger_honeytoken_alert
+            trigger_honeytoken_alert("LLAVE_ENV_CANARIO_USADA", f"Variable señuelo {_canary_var} cargada en entorno")
+        except Exception:
+            pass

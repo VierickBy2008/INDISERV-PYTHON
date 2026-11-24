@@ -1345,6 +1345,15 @@ def _inferir_refrigeracion(hw: dict[str, Any]) -> str:
     return "Cooler Estándar (inferido)"
 
 
+def _enmascarar_ip_local(ip_val: Any) -> str:
+    """Enmascara los octetos intermedios de la IP local (ej. 192.168.x.45) antes de subir a la nube."""
+    s = str(ip_val or "").strip()
+    partes = s.split(".")
+    if len(partes) == 4 and all(p.isdigit() for p in partes):
+        return f"{partes[0]}.{partes[1]}.x.{partes[3]}"
+    return s
+
+
 def construir_resumen_para_bd(
     ticket_id: str,
     hw: dict[str, Any],
@@ -1411,7 +1420,7 @@ def construir_resumen_para_bd(
         },
         "red": {
             "adaptador":  hw.get("adaptador_activo"),
-            "ip":         hw.get("ip_local"),
+            "ip":         _enmascarar_ip_local(hw.get("ip_local")),
             "latencia_ms":hw.get("latencia_ms"),
         },
         "so": {

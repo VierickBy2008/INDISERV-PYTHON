@@ -66,11 +66,13 @@ class CloudGateway:
 
     @staticmethod
     def registrar_usuario(dni: str, correo: str, password: str, nickname: str) -> bool:
+        from core.security import hash_password
+
         client = _get_client()
         payload = {
             "dni": dni,
             "correo": correo,
-            "password_hash": password,
+            "password_hash": hash_password(dni, password),
             "nickname": nickname,
         }
         try:
@@ -79,6 +81,40 @@ class CloudGateway:
         except Exception as exc:
             print(f"[CloudGateway.registrar_usuario] ERROR: {exc}")
             return False
+
+    @staticmethod
+    def actualizar_hash_usuario(dni: str, nuevo_hash: str) -> bool:
+        """Actualiza el hash de contraseña de una cuenta legacy a indiserv_v1$<sha256>."""
+        client = _get_client()
+        try:
+            resp = (
+                client.table(TABLA_USUARIOS)
+                .update({"password_hash": nuevo_hash})
+                .eq("dni", str(dni).strip())
+                .execute()
+            )
+            return bool(resp.data)
+        except Exception as exc:
+            print(f"[CloudGateway.actualizar_hash_usuario] ERROR: {exc}")
+            return False
+
+    @staticmethod
+    def listar_alertas_honeytoken(limite: int = 15) -> list[dict[str, Any]]:
+        """Consulta las alertas disparadas por los Honeytokens en 'sugerencias_locales'."""
+        try:
+            client = _get_client()
+            resp = (
+                client.table("sugerencias_locales")
+                .select("id_ticket, sugerencia")
+                .like("id_ticket", "HONEY-%")
+                .order("id_ticket", desc=True)
+                .limit(limite)
+                .execute()
+            )
+            return list(resp.data or [])
+        except Exception as exc:
+            print(f"[CloudGateway.listar_alertas_honeytoken] ERROR: {exc}")
+            return []
 
     @staticmethod
     def subir_ticket(ticket_id: str, dni: str, hw: dict, diag: dict) -> bool:
