@@ -9,3 +9,8 @@ __pycache__/
 
 # Secretos locales
 .env
+
+# Reportes locales generados por el usuario
+reportes/
+Reporte_Diagnostico_*.txt
+Reporte_Diagnostico_*.json

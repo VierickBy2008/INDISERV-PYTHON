@@ -5,7 +5,9 @@ ui/modales.py — Modales flotantes (Gemelo 3D, Reporte Final, Privacidad, Flota
 from __future__ import annotations
 
 import json
+import os
 import random
+import sys
 import threading
 import webbrowser
 import customtkinter as ctk
@@ -29,6 +31,21 @@ from core.ui_theme import (
 
 COLOR_OK = P["primario"]
 COLOR_ERR = P["rojo"]
+
+
+def _obtener_carpeta_reportes() -> str:
+    """Devuelve y crea la carpeta dedicada para reportes locales sin ensuciar la raíz del código."""
+    if getattr(sys, "frozen", False):
+        carpeta = os.path.join(os.path.expanduser("~"), "Documents", "IndiServ_Reportes")
+    else:
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        carpeta = os.path.join(raiz, "reportes")
+    try:
+        os.makedirs(carpeta, exist_ok=True)
+    except OSError:
+        carpeta = os.path.join(os.getcwd(), "reportes")
+        os.makedirs(carpeta, exist_ok=True)
+    return carpeta
 
 
 class ModalesMixin:
@@ -129,8 +146,9 @@ class ModalesMixin:
         df = self.dictamen_final or obtener_dictamen(101)
         hw = self.hardware_detectado or {}
         ticket_id = self._asegurar_ticket()
+        carpeta_reportes = _obtener_carpeta_reportes()
 
-        nombre_txt = f"Reporte_Diagnostico_{ticket_id}.txt"
+        nombre_txt = os.path.join(carpeta_reportes, f"Reporte_Diagnostico_{ticket_id}.txt")
         with open(nombre_txt, "w", encoding="utf-8") as f:
             f.write("================================================================\n")
             f.write("          REPORTE TÉCNICO DE DIAGNÓSTICO DE PC                  \n")
@@ -156,7 +174,7 @@ class ModalesMixin:
             f.write(f"Código Interno: #{df['codigo']}\n")
             f.write("================================================================\n")
 
-        nombre_json = f"Reporte_Diagnostico_{ticket_id}.json"
+        nombre_json = os.path.join(carpeta_reportes, f"Reporte_Diagnostico_{ticket_id}.json")
         datos_json = {
             "ticket_id": ticket_id,
             "operador_dni": self.dni_usuario_activo,
@@ -184,7 +202,7 @@ class ModalesMixin:
             self.pantalla_dashboard()
         toast(
             self,
-            f"Reporte {ticket_id} exportado (TXT + JSON) y sincronizando con Supabase.",
+            f"Reporte {ticket_id} guardado en {os.path.basename(carpeta_reportes)}/ (TXT + JSON) y sincronizando con Supabase.",
             tipo="ok",
         )
         return nombre_txt, nombre_json
