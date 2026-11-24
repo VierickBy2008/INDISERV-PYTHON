@@ -90,8 +90,19 @@ class CloudGateway:
                     "correo": rpc_resp.data.get("correo") or clean_correo,
                     "nickname": rpc_resp.data.get("nickname") or "Operador",
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            err_msg = str(exc)
+            # Solo caer al respaldo legacy SELECT si la función RPC aún no existe en Supabase.
+            is_missing_rpc = any(
+                tok in err_msg.lower()
+                for tok in ("pgrst202", "42883", "could not find the function", "does not exist", "404")
+            )
+            if not is_missing_rpc:
+                print(f"[CloudGateway.autenticar_usuario_seguro] ERROR RPC: {err_msg}")
+                return {
+                    "autenticado": False,
+                    "error_conexion": f"Error de conexión con Supabase: {err_msg[:90]}",
+                }
 
         cuenta = CloudGateway.consultar_usuario(clean_dni)
         es_valida, _ = verify_password(clean_dni, password, str(cuenta.get("password_hash") or ""))

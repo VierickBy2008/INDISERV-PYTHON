@@ -478,7 +478,11 @@ class AppIndiServ(ctk.CTk):
         self.update_idletasks()
 
         auth_res = CloudGateway.autenticar_usuario_seguro(dni, correo, password)
-        if auth_res.get("autenticado"):
+        if auth_res.get("error_conexion"):
+            if hasattr(self, "btn_ingresar"):
+                self.btn_ingresar.configure(state="normal", text="Ingresar a Consola de Operaciones  →")
+            self.lbl_login_error.configure(text=f"⚠ {auth_res['error_conexion']}")
+        elif auth_res.get("autenticado"):
             reset_login_rate_limit()
             self.dni_usuario_activo = dni
             self._mostrar_splash_carga()

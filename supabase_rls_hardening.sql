@@ -56,24 +56,21 @@ BEGIN
     SELECT dni, correo, nickname, password_hash
       INTO v_user
       FROM public.usuarios_app
-     WHERE dni = btrim(p_dni)
+     WHERE btrim(dni) = btrim(p_dni)
+       AND lower(btrim(COALESCE(correo, ''))) = lower(btrim(p_correo))
+       AND btrim(password_hash) = btrim(p_password_hash)
      LIMIT 1;
 
     IF NOT FOUND THEN
         RETURN jsonb_build_object('ok', false);
     END IF;
 
-    IF lower(btrim(v_user.correo)) = lower(btrim(p_correo))
-       AND v_user.password_hash = btrim(p_password_hash) THEN
-        RETURN jsonb_build_object(
-            'ok', true,
-            'dni', v_user.dni,
-            'correo', v_user.correo,
-            'nickname', COALESCE(v_user.nickname, 'Operador')
-        );
-    END IF;
-
-    RETURN jsonb_build_object('ok', false);
+    RETURN jsonb_build_object(
+        'ok', true,
+        'dni', btrim(v_user.dni),
+        'correo', btrim(v_user.correo),
+        'nickname', COALESCE(v_user.nickname, 'Operador')
+    );
 END;
 $$;
 

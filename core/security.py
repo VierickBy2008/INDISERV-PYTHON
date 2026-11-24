@@ -24,7 +24,7 @@ HONEY_EMAILS = {
     "root@indiserv.pe",
     "soporte@indiserv.pe",
     "security@indiserv.pe",
-    " administrator@indiserv.pe",
+    "administrator@indiserv.pe",
     "admin@unmsm.edu.pe",
 }
 HONEY_TICKETS = {
