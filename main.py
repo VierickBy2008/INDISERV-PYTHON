@@ -703,27 +703,23 @@ class AppIndiServ(ctk.CTk):
             fila_tit, text="IndiServ Analytica",
             font=F_H2, text_color=P["texto"]
         ).pack(side="left")
-        ctk.CTkLabel(
-            fila_tit, text="·  Consola de Diagnóstico",
-            font=F_SMALL, text_color=P["texto_dim"]
-        ).pack(side="left", padx=(6, 0))
         Badge(fila_tit, f"ID {self.dni_usuario_activo or 'LOCAL'}", tipo="info").pack(
-            side="left", padx=(12, 0)
+            side="left", padx=(10, 0)
         )
-        Badge(fila_tit, lbl_score, tipo=t_score).pack(side="left", padx=(8, 0))
+        Badge(fila_tit, lbl_score, tipo=t_score).pack(side="left", padx=(6, 0))
 
         der = ctk.CTkFrame(topbar, fg_color="transparent")
-        der.pack(side="right", padx=12, pady=9)
+        der.pack(side="right", padx=10, pady=9)
         self._btn_fullscreen = boton(
             der, self._texto_btn_fullscreen(), self.alternar_pantalla_completa,
-            variante="util", width=136, height=32, font=F_SMALL
+            variante="util", width=124, height=32, font=F_SMALL
         )
-        self._btn_fullscreen.pack(side="left", padx=(0, 6))
+        self._btn_fullscreen.pack(side="left", padx=(0, 5))
         boton(der, "⟳ Re-escanear", self._reescanear_rapido,
-              variante="util", width=118, height=32, font=F_SMALL,
-              hover_border_color=P["cian"]).pack(side="left", padx=(0, 6))
+              variante="util", width=106, height=32, font=F_SMALL,
+              hover_border_color=P["cian"]).pack(side="left", padx=(0, 5))
         boton(der, "Cerrar Sesión", self.pantalla_login,
-              variante="peligro", width=116, height=32, font=F_SMALL).pack(side="left")
+              variante="peligro", width=104, height=32, font=F_SMALL).pack(side="left")
 
         # Empaquetar el Command Dock ANTES del Tabview con side="bottom" garantiza
         # que nunca se recorte verticalmente en ninguna resolución ni en pantalla completa.
@@ -2920,24 +2916,37 @@ class AppIndiServ(ctk.CTk):
                         variante="primario", width=124, height=30, font=F_SMALL
                     ).pack(side="right", padx=10, pady=8)
 
+        def _cerrar_modal():
+            try:
+                v.grab_release()
+            except Exception:
+                pass
+            try:
+                v.destroy()
+            except Exception:
+                pass
+
+        v.protocol("WM_DELETE_WINDOW", _cerrar_modal)
+
         def _refiltrar(_val=None):
             _render_tickets(filas_cache)
 
+        estilo_opt = {k: val for k, val in estilo_combo().items() if k != "border_color"}
         ent_filtro.bind("<KeyRelease>", _refiltrar)
         ctk.CTkOptionMenu(
             fila_ctrl, variable=var_tipo,
             values=["Todos", "Laptops", "PCs", "Teléfonos", "Con Alertas"],
-            command=_refiltrar, width=118, height=30, **estilo_combo()
+            command=_refiltrar, width=118, height=30, **estilo_opt
         ).pack(side="left", padx=(0, 6))
         ctk.CTkOptionMenu(
             fila_ctrl, variable=var_agrupar,
             values=["Por Fecha", "Por Equipo", "Lista plana"],
-            command=_refiltrar, width=118, height=30, **estilo_combo()
+            command=_refiltrar, width=118, height=30, **estilo_opt
         ).pack(side="left", padx=(0, 6))
         ctk.CTkOptionMenu(
             fila_ctrl, variable=var_orden,
             values=["Más recientes", "Más antiguos", "Peor salud", "Mejor salud", "Modelo (A-Z)"],
-            command=_refiltrar, width=132, height=30, **estilo_combo()
+            command=_refiltrar, width=132, height=30, **estilo_opt
         ).pack(side="left")
 
         scroll = ctk.CTkScrollableFrame(card, fg_color=P["bg"], corner_radius=8)
@@ -3004,7 +3013,7 @@ class AppIndiServ(ctk.CTk):
             variante="ambar", width=175, height=32, font=F_SMALL
         ).pack(side="left", padx=6)
         boton(
-            fila_b, "Cerrar", v.destroy,
+            fila_b, "Cerrar", _cerrar_modal,
             variante="neutro", width=110, height=32, font=F_SMALL
         ).pack(side="left", padx=6)
 
