@@ -752,6 +752,34 @@ class AppIndiServ(ctk.CTk):
         )
         self._fila_dato(c_mb, "Gráficos Primarios", hw.get("gpu_principal", "N/A"))
 
+        lic = hw.get("licencia_windows") if isinstance(hw.get("licencia_windows"), dict) else {}
+        if sys.platform == "win32" or lic.get("aplicable"):
+            est_lic = str(lic.get("estado") or "No verificada")
+            pk = str(lic.get("partial_key") or "").strip()
+            dias = lic.get("dias_restantes")
+            if lic.get("sospecha_kms") and dias:
+                val_lic = f"KMS No Oficial · Vence en {dias} días" + (f" · …{pk}" if pk else "")
+            else:
+                uefi_tag = " (UEFI)" if lic.get("tiene_llave_uefi") and lic.get("canal", "").startswith("OEM") else ""
+                val_lic = f"{est_lic}{uefi_tag}" + (f" · …{pk}" if pk else "")
+            self._fila_dato(
+                c_mb,
+                "Licencia Windows",
+                val_lic,
+                (lic.get("etiqueta_badge", "INFO"), lic.get("tipo_badge", "info")),
+            )
+            detalle_lic = str(lic.get("detalle") or "").strip()
+            if detalle_lic:
+                ctk.CTkLabel(
+                    c_mb,
+                    text=f"ℹ {detalle_lic}",
+                    font=F_CAPTION,
+                    text_color=P["texto_dim"],
+                    anchor="w",
+                    wraplength=470,
+                    justify="left",
+                ).pack(fill="x", padx=12, pady=(0, 6))
+
         c_ev = tarjeta(cuerpo)
         c_ev.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
         overline(c_ev, "Observaciones Didácticas en Vivo", color=P["ambar"]).pack(

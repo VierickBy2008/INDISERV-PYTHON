@@ -456,6 +456,16 @@ class EvaluadorTelemetria:
         if base > 0 and 0 < actual < base * 0.5:
             ev.append({"codigos": [302, 301], "nivel": "warn",
                        "texto": f"Frecuencia actual muy por debajo de la base ({actual} / {base} GHz)."})
+
+        lic = hw.get("licencia_windows")
+        if isinstance(lic, dict) and lic.get("sospecha_kms"):
+            dias_txt = f" ({lic['dias_restantes']} días restantes)" if lic.get("dias_restantes") else ""
+            srv_txt = f" · KMS: {lic['servidor_kms']}" if lic.get("servidor_kms") else ""
+            ev.append({
+                "codigos": [],
+                "nivel": "warn",
+                "texto": f"Licencia Windows KMS no oficial detectada{dias_txt}{srv_txt} (observación de software, no afecta salud de hardware).",
+            })
         return ev
 
     @staticmethod

@@ -678,6 +678,354 @@ def _tiene_firma_portatil(hw: dict[str, Any]) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Auditoría de Licencia de Windows (solo lectura, exclusivo win32)
+# ---------------------------------------------------------------------------
+
+_KMS_PUBLICOS_CONOCIDOS = (
+    "localhost",
+    "127.0.0.",
+    "::1",
+    "0.0.0.0",
+    "kms8.msguides",
+    "kms9.msguides",
+    "kms.msguides",
+    "kms.lotro.cc",
+    "kms.digiboy",
+    "s8.uk.to",
+    "s9.uk.to",
+    "kms.chinancpy",
+    "kms.03k.org",
+    "kms.loli.beer",
+    "kms.v0v.bid",
+    "e8.us.to",
+    "e9.us.to",
+    "kms.cangshui",
+    "kms.moerats",
+    "kms.shuax",
+)
+
+
+def _es_servidor_kms_no_oficial(servidor: str) -> bool:
+    s = (servidor or "").strip().lower()
+    if not s:
+        return False
+    return any(ind in s for ind in _KMS_PUBLICOS_CONOCIDOS)
+
+
+def _es_servidor_kms_privado_corporativo(servidor: str) -> bool:
+    s = (servidor or "").strip().lower()
+    if not s or _es_servidor_kms_no_oficial(s):
+        return False
+    if re.match(r"^(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)$", s):
+        return True
+    if s.endswith((".local", ".lan", ".corp", ".internal", ".intra")):
+        return True
+    return False
+
+
+def _leer_kms_registro_windows() -> str:
+    """Lee KeyManagementServiceName en modo solo lectura (solo Windows)."""
+    if sys.platform != "win32":
+        return ""
+    try:
+        import winreg  # condicional: nunca se importa en Linux/macOS
+
+        ruta = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, ruta, 0, winreg.KEY_READ) as clave:
+            val, _ = winreg.QueryValueEx(clave, "KeyManagementServiceName")
+            return str(val or "").strip()
+    except Exception:
+        return ""
+
+
+def _extraer_canal_licencia(producto: dict[str, Any]) -> str:
+    raw = f"{producto.get('ProductKeyChannel') or ''} {producto.get('Description') or ''}".upper()
+    if "OEM:DM" in raw or "OEM_DM" in raw:
+        return "OEM_DM"
+    if "OEM" in raw:
+        return "OEM"
+    if "KMSCLIENT" in raw or "VOLUME:KMS" in raw or "VOLUME_KMS" in raw:
+        return "VOLUME_KMSCLIENT"
+    if "VOLUME:MAK" in raw or "VOLUME_MAK" in raw or "MAK" in raw:
+        return "VOLUME_MAK"
+    if "RETAIL" in raw:
+        return "RETAIL"
+    return "DESCONOCIDO"
+
+
+def _clasificar_licencia_windows(
+    producto: dict[str, Any] | None,
+    tiene_llave_uefi: bool = False,
+    kms_registro: str = "",
+) -> dict[str, Any]:
+    """
+    Clasifica de forma determinista y honesta el estado de licenciamiento Windows
+    a partir de SoftwareLicensingProduct/Service + Registro en solo lectura.
+    Jamás expone llaves completas (solo partial_key de 5 caracteres y booleano tiene_llave_uefi).
+    """
+    if not producto:
+        sospecha_kms = _es_servidor_kms_no_oficial(kms_registro)
+        return {
+            "aplicable": True,
+            "estado": "Sin Activar / Sin Licencia Detectada",
+            "tipo_badge": "err" if sospecha_kms else "warn",
+            "etiqueta_badge": "NO OFICIAL (KMS)" if sospecha_kms else "SIN ACTIVAR",
+            "canal": "N/D",
+            "activa": False,
+            "permanente": False,
+            "dias_restantes": None,
+            "tiene_llave_uefi": bool(tiene_llave_uefi),
+            "partial_key": "",
+            "es_original": False,
+            "sospecha_kms": sospecha_kms,
+            "servidor_kms": kms_registro.strip(),
+            "detalle": "No se detectó un producto de Windows activado con clave parcial instalada.",
+        }
+
+    canal = _extraer_canal_licencia(producto)
+    try:
+        status_code = int(producto.get("LicenseStatus") or 0)
+    except (TypeError, ValueError):
+        status_code = 0
+    try:
+        grace_min = int(producto.get("GracePeriodRemaining") or 0)
+    except (TypeError, ValueError):
+        grace_min = 0
+
+    partial_raw = str(producto.get("PartialProductKey") or "").strip().upper()
+    partial_key = partial_raw[-5:] if partial_raw else ""
+
+    kms_wmi = str(producto.get("KeyManagementServiceMachine") or "").strip()
+    servidor_kms = kms_wmi or str(kms_registro or "").strip()
+    kms_no_oficial = _es_servidor_kms_no_oficial(servidor_kms)
+    kms_corporativo = _es_servidor_kms_privado_corporativo(servidor_kms)
+
+    activa = status_code == 1
+    permanente = bool(activa and grace_min == 0)
+    dias_restantes = max(1, round(grace_min / 1440.0)) if grace_min > 0 else None
+
+    if not activa:
+        etiqueta_est = {
+            0: "Sin licencia",
+            2: "Período de gracia inicial",
+            3: "Gracia adicional",
+            5: "Notificación / Expirada",
+            6: "Gracia extendida",
+        }.get(status_code, "No activada")
+        return {
+            "aplicable": True,
+            "estado": f"Sin Activar ({etiqueta_est})",
+            "tipo_badge": "err" if status_code in (0, 5) else "warn",
+            "etiqueta_badge": "SIN ACTIVAR",
+            "canal": canal,
+            "activa": False,
+            "permanente": False,
+            "dias_restantes": dias_restantes,
+            "tiene_llave_uefi": bool(tiene_llave_uefi),
+            "partial_key": partial_key,
+            "es_original": False,
+            "sospecha_kms": kms_no_oficial,
+            "servidor_kms": servidor_kms,
+            "detalle": f"Windows reporta estado '{etiqueta_est}' (canal {canal}).",
+        }
+
+    if canal == "VOLUME_KMSCLIENT" or kms_no_oficial:
+        if kms_no_oficial or tiene_llave_uefi or (not permanente and not kms_corporativo):
+            motivos = []
+            if dias_restantes is not None:
+                motivos.append(f"activación temporal ({dias_restantes} días restantes)")
+            if servidor_kms:
+                motivos.append(f"servidor KMS '{servidor_kms}'")
+            if tiene_llave_uefi:
+                motivos.append("superpuesto sobre llave OEM de fábrica en UEFI")
+            resumen_motivo = ", ".join(motivos) or "canal VOLUME_KMSCLIENT en equipo personal"
+            return {
+                "aplicable": True,
+                "estado": "Activación KMS No Oficial (Sospecha Crack)",
+                "tipo_badge": "err",
+                "etiqueta_badge": "NO OFICIAL (KMS)",
+                "canal": canal,
+                "activa": True,
+                "permanente": False,
+                "dias_restantes": dias_restantes,
+                "tiene_llave_uefi": bool(tiene_llave_uefi),
+                "partial_key": partial_key,
+                "es_original": False,
+                "sospecha_kms": True,
+                "servidor_kms": servidor_kms,
+                "detalle": f"Canal {canal}: {resumen_motivo}.",
+            }
+        return {
+            "aplicable": True,
+            "estado": "Licencia Volumen Empresarial (KMS Interno)",
+            "tipo_badge": "warn",
+            "etiqueta_badge": "EMPRESARIAL",
+            "canal": canal,
+            "activa": True,
+            "permanente": permanente,
+            "dias_restantes": dias_restantes,
+            "tiene_llave_uefi": bool(tiene_llave_uefi),
+            "partial_key": partial_key,
+            "es_original": True,
+            "sospecha_kms": False,
+            "servidor_kms": servidor_kms,
+            "detalle": f"Licencia por volumen corporativo vinculada al servidor interno '{servidor_kms}'.",
+        }
+
+    if canal == "VOLUME_MAK":
+        return {
+            "aplicable": True,
+            "estado": "Licencia Volumen Empresarial (MAK)",
+            "tipo_badge": "warn",
+            "etiqueta_badge": "EMPRESARIAL",
+            "canal": canal,
+            "activa": True,
+            "permanente": permanente,
+            "dias_restantes": dias_restantes,
+            "tiene_llave_uefi": bool(tiene_llave_uefi),
+            "partial_key": partial_key,
+            "es_original": True,
+            "sospecha_kms": False,
+            "servidor_kms": servidor_kms,
+            "detalle": "Clave de activación múltiple (VOLUME_MAK) orientada a entornos empresariales.",
+        }
+
+    if canal in ("OEM_DM", "OEM") and permanente:
+        uefi_txt = "vinculada a la placa base (UEFI)" if tiene_llave_uefi else "de canal OEM"
+        return {
+            "aplicable": True,
+            "estado": "Original OEM de Fábrica",
+            "tipo_badge": "ok",
+            "etiqueta_badge": "ORIGINAL OEM",
+            "canal": canal,
+            "activa": True,
+            "permanente": True,
+            "dias_restantes": None,
+            "tiene_llave_uefi": bool(tiene_llave_uefi),
+            "partial_key": partial_key,
+            "es_original": True,
+            "sospecha_kms": False,
+            "servidor_kms": "",
+            "detalle": f"Licencia OEM {uefi_txt} con activación permanente oficial.",
+        }
+
+    if canal == "RETAIL" and permanente:
+        return {
+            "aplicable": True,
+            "estado": "Original Retail / Digital",
+            "tipo_badge": "ok",
+            "etiqueta_badge": "ORIGINAL RETAIL",
+            "canal": canal,
+            "activa": True,
+            "permanente": True,
+            "dias_restantes": None,
+            "tiene_llave_uefi": bool(tiene_llave_uefi),
+            "partial_key": partial_key,
+            "es_original": True,
+            "sospecha_kms": False,
+            "servidor_kms": "",
+            "detalle": (
+                "Activación Retail/Digital permanente validada por Windows "
+                "(por software no se distingue comprobante de compra en claves Retail ya validadas)."
+            ),
+        }
+
+    return {
+        "aplicable": True,
+        "estado": "Licencia Activa (Canal Estándar)",
+        "tipo_badge": "info",
+        "etiqueta_badge": "ACTIVA",
+        "canal": canal,
+        "activa": True,
+        "permanente": permanente,
+        "dias_restantes": dias_restantes,
+        "tiene_llave_uefi": bool(tiene_llave_uefi),
+        "partial_key": partial_key,
+        "es_original": True,
+        "sospecha_kms": False,
+        "servidor_kms": servidor_kms,
+        "detalle": f"Windows activado bajo canal {canal}.",
+    }
+
+
+def _escanear_licencia_windows() -> dict[str, Any]:
+    """
+    Audita la licencia de Windows en modo solo lectura sin privilegios de administrador.
+    En Linux/macOS retorna inmediatamente estado POSIX sin ejecutar PowerShell ni importar winreg.
+    """
+    if sys.platform != "win32":
+        return {
+            "aplicable": False,
+            "estado": "No aplica (POSIX)",
+            "tipo_badge": "neutro",
+            "etiqueta_badge": "NO APLICA",
+            "canal": "N/D",
+            "activa": None,
+            "permanente": None,
+            "dias_restantes": None,
+            "tiene_llave_uefi": False,
+            "partial_key": "",
+            "es_original": None,
+            "sospecha_kms": False,
+            "servidor_kms": "",
+            "detalle": "Sistema no Windows",
+        }
+
+    kms_reg = _leer_kms_registro_windows()
+    ps_script = (
+        "$p = Get-CimInstance -ClassName SoftwareLicensingProduct "
+        "-Filter \"ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL\" | "
+        "Select-Object Name, Description, ProductKeyChannel, LicenseStatus, GracePeriodRemaining, "
+        "PartialProductKey, KeyManagementServiceMachine, KeyManagementServicePort; "
+        "$s = Get-CimInstance -ClassName SoftwareLicensingService | Select-Object -First 1; "
+        "$hasUefi = $false; $svcKms = ''; "
+        "if ($s) { "
+        "  $hasUefi = -not [string]::IsNullOrWhiteSpace($s.OA3xOriginalProductKey); "
+        "  if ($s.KeyManagementServiceName) { $svcKms = [string]$s.KeyManagementServiceName } "
+        "}; "
+        "[PSCustomObject]@{ products = @($p); hasUefi = $hasUefi; svcKms = $svcKms } | "
+        "ConvertTo-Json -Depth 3 -Compress"
+    )
+
+    producto_sel: dict[str, Any] | None = None
+    tiene_llave_uefi = False
+    svc_kms = ""
+
+    try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        result = subprocess.run(
+            ["powershell", "-NonInteractive", "-NoProfile", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            creationflags=creation_flags,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            data = json.loads(result.stdout.strip())
+            tiene_llave_uefi = bool(data.get("hasUefi"))
+            svc_kms = str(data.get("svcKms") or "").strip()
+            prods = data.get("products") or []
+            if isinstance(prods, dict):
+                prods = [prods]
+            for item in prods:
+                if isinstance(item, dict) and int(item.get("LicenseStatus") or 0) == 1:
+                    producto_sel = item
+                    break
+            if producto_sel is None and prods and isinstance(prods[0], dict):
+                producto_sel = prods[0]
+    except Exception:
+        pass
+
+    return _clasificar_licencia_windows(
+        producto_sel,
+        tiene_llave_uefi=tiene_llave_uefi,
+        kms_registro=kms_reg or svc_kms,
+    )
+
+
 class LectorHardware:
     """
     API pública del módulo de hardware.
@@ -702,6 +1050,7 @@ class LectorHardware:
         gpu = _escanear_gpu()
         storage = _escanear_almacenamiento()
         red = _escanear_red_y_so()
+        licencia_win = _escanear_licencia_windows()
 
         # Combinar todo en un dict plano, preservando claves legacy
         datos: dict[str, Any] = {}
@@ -712,6 +1061,7 @@ class LectorHardware:
         datos.update(gpu)
         datos.update(storage)
         datos.update(red)
+        datos["licencia_windows"] = licencia_win
 
         if datos.get("tipo_equipo") != "laptop" and _tiene_firma_portatil(datos):
             datos["tipo_equipo"] = "laptop"
@@ -850,6 +1200,7 @@ def construir_resumen_para_bd(
     if tipo_final != "laptop" and _tiene_firma_portatil(hw):
         tipo_final = "laptop"
     clean_dni = str(owner_dni).strip() if owner_dni else ""
+    lic = hw.get("licencia_windows") if isinstance(hw.get("licencia_windows"), dict) else {}
     specs_json: dict[str, Any] = {
         "tipo_equipo": tipo_final or "desktop",
         "owner_dni": clean_dni or None,
@@ -890,6 +1241,18 @@ def construir_resumen_para_bd(
             "nombre":  hw.get("so"),
             "build":   hw.get("so_build"),
             "uptime":  hw.get("uptime"),
+            "licencia": {
+                "aplicable": lic.get("aplicable"),
+                "estado": lic.get("estado"),
+                "canal": lic.get("canal"),
+                "activa": lic.get("activa"),
+                "permanente": lic.get("permanente"),
+                "dias_restantes": lic.get("dias_restantes"),
+                "tiene_llave_uefi": bool(lic.get("tiene_llave_uefi")),
+                "partial_key": str(lic.get("partial_key") or "")[-5:],
+                "sospecha_kms": bool(lic.get("sospecha_kms")),
+                "servidor_kms": str(lic.get("servidor_kms") or ""),
+            } if isinstance(hw.get("licencia_windows"), dict) else None,
         },
         "diagnostico_codigo": diag.get("codigo"),
     }
