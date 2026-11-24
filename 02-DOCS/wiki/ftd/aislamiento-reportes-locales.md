@@ -16,7 +16,11 @@
    - `guardar_reporte_final()` ahora escribe `Reporte_Diagnostico_{ticket_id}.txt` y `.json` dentro de esa carpeta dedicada, manteniendo la misma firma de retorno `(ruta_txt, ruta_json)` y el hilo en segundo plano hacia Supabase.
 2. **Limpieza del repositorio y [.gitignore](file:///c:/Users/Lenovo/Desktop/By2002/IndiServ_Python/.gitignore):**
    - Eliminados de Git (`git rm`) los **16 archivos** `Reporte_Diagnostico_*` que llenaban la raíz del repositorio.
-   - Agregadas las reglas `reportes/`, `Reporte_Diagnostico_*.txt` y `Reporte_Diagnostico_*.json` a `.gitignore`.
+   - Agregadas las reglas `reportes/`, `Reporte_Diagnostico_*.txt`, `Reporte_Diagnostico_*.json`, `sugerencias_locales.txt`, `historial_local.txt`, `.idea/` y `.rsc/auto-update.log` a `.gitignore`.
+3. **Limpieza adicional de temporales e IDE:**
+   - Redirigido `sugerencias_locales.txt` en `modal_sugerencias()` hacia `_obtener_carpeta_reportes()`.
+   - Eliminados `historial_local.txt` (0 referencias) y `sugerencias_locales.txt` de la raíz; desrastrearon `.idea/` y `.rsc/auto-update.log` de Git (`git rm --cached`).
+   - Añadido `*.apk` a `IndiServ_Web3D/.gitignore`.
 
 ---
 

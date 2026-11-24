@@ -14,3 +14,9 @@ __pycache__/
 reportes/
 Reporte_Diagnostico_*.txt
 Reporte_Diagnostico_*.json
+sugerencias_locales.txt
+historial_local.txt
+
+# IDE y logs locales
+.idea/
+.rsc/auto-update.log

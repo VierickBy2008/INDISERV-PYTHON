@@ -571,7 +571,8 @@ class ModalesMixin:
 
             t_id = f"SUG-{random.randint(10000, 99999)}"
 
-            with open("sugerencias_locales.txt", "a", encoding="utf-8") as s:
+            ruta_sug = os.path.join(_obtener_carpeta_reportes(), "sugerencias_locales.txt")
+            with open(ruta_sug, "a", encoding="utf-8") as s:
                 s.write(f"[{t_id}] {texto}\n")
 
             def _subir():
