@@ -354,16 +354,9 @@ class AppIndiServ(ctk.CTk):
             self.btn_ingresar.configure(state="disabled", text="Verificando credenciales…")
         self.update_idletasks()
 
-        cuenta = CloudGateway.consultar_usuario(dni)
-        es_valida, migrar = verify_password(dni, password, str(cuenta.get("password_hash") or ""))
-        if cuenta.get("registrado") and cuenta.get("correo") == correo and es_valida:
+        auth_res = CloudGateway.autenticar_usuario_seguro(dni, correo, password)
+        if auth_res.get("autenticado"):
             reset_login_rate_limit()
-            if migrar:
-                nuevo_h = hash_password(dni, password)
-                threading.Thread(
-                    target=lambda: CloudGateway.actualizar_hash_usuario(dni, nuevo_h),
-                    daemon=True,
-                ).start()
             self.dni_usuario_activo = dni
             self._mostrar_splash_carga()
         else:
@@ -537,8 +530,7 @@ class AppIndiServ(ctk.CTk):
             self.lbl_reg_error.configure(text="✖ El DNI no figura en el padrón oficial.")
             return
 
-        cuenta = CloudGateway.consultar_usuario(dni)
-        if cuenta.get("registrado"):
+        if padron.get("ya_registrado") or CloudGateway.consultar_usuario(dni).get("registrado"):
             self.lbl_reg_error.configure(text="⚠ Este DNI ya tiene una cuenta registrada.")
             return
 

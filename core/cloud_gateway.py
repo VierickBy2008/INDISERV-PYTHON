@@ -35,8 +35,21 @@ class CloudGateway:
     @staticmethod
     def consultar_padron(dni: str) -> dict:
         client = _get_client()
+        clean_dni = str(dni or "").strip()
         try:
-            resp = client.table(TABLA_PADRON).select("*").eq("dni", dni).execute()
+            rpc_resp = client.rpc("verificar_padron_dni", {"p_dni": clean_dni}).execute()
+            if isinstance(rpc_resp.data, dict) and "existe" in rpc_resp.data:
+                return rpc_resp.data
+        except Exception:
+            pass
+        try:
+            resp = (
+                client.table(TABLA_PADRON)
+                .select("dni, nombres_completos, carrera")
+                .eq("dni", clean_dni)
+                .limit(1)
+                .execute()
+            )
             if resp.data:
                 data = resp.data[0]
                 return {
@@ -49,10 +62,57 @@ class CloudGateway:
         return {"existe": False}
 
     @staticmethod
+    def autenticar_usuario_seguro(dni: str, correo: str, password: str) -> dict:
+        """
+        Autentica un operador priorizando la función RPC SECURITY DEFINER
+        'autenticar_usuario' en PostgreSQL para no exponer 'password_hash' en red.
+        """
+        from core.security import hash_password, verify_password
+
+        clean_dni = str(dni or "").strip()
+        clean_correo = str(correo or "").strip()
+        hashed_input = hash_password(clean_dni, password)
+        client = _get_client()
+
+        try:
+            rpc_resp = client.rpc(
+                "autenticar_usuario",
+                {
+                    "p_dni": clean_dni,
+                    "p_correo": clean_correo,
+                    "p_password_hash": hashed_input,
+                },
+            ).execute()
+            if isinstance(rpc_resp.data, dict) and "ok" in rpc_resp.data:
+                return {
+                    "autenticado": bool(rpc_resp.data.get("ok")),
+                    "dni": clean_dni,
+                    "correo": rpc_resp.data.get("correo") or clean_correo,
+                    "nickname": rpc_resp.data.get("nickname") or "Operador",
+                }
+        except Exception:
+            pass
+
+        cuenta = CloudGateway.consultar_usuario(clean_dni)
+        es_valida, _ = verify_password(clean_dni, password, str(cuenta.get("password_hash") or ""))
+        ok = bool(cuenta.get("registrado") and cuenta.get("correo") == clean_correo and es_valida)
+        return {
+            "autenticado": ok,
+            "dni": clean_dni,
+            "correo": cuenta.get("correo"),
+        }
+
+    @staticmethod
     def consultar_usuario(dni: str) -> dict:
         client = _get_client()
         try:
-            resp = client.table(TABLA_USUARIOS).select("*").eq("dni", dni).execute()
+            resp = (
+                client.table(TABLA_USUARIOS)
+                .select("dni, correo, nickname, password_hash")
+                .eq("dni", str(dni or "").strip())
+                .limit(1)
+                .execute()
+            )
             if resp.data:
                 data = resp.data[0]
                 return {
@@ -68,12 +128,32 @@ class CloudGateway:
     def registrar_usuario(dni: str, correo: str, password: str, nickname: str) -> bool:
         from core.security import hash_password
 
+        clean_dni = str(dni or "").strip()
+        clean_correo = str(correo or "").strip()
+        clean_nick = str(nickname or "").strip()
+        hashed_pass = hash_password(clean_dni, password)
         client = _get_client()
+
+        try:
+            rpc_resp = client.rpc(
+                "registrar_usuario_seguro",
+                {
+                    "p_dni": clean_dni,
+                    "p_nickname": clean_nick,
+                    "p_correo": clean_correo,
+                    "p_password_hash": hashed_pass,
+                },
+            ).execute()
+            if isinstance(rpc_resp.data, dict) and "ok" in rpc_resp.data:
+                return bool(rpc_resp.data.get("ok"))
+        except Exception:
+            pass
+
         payload = {
-            "dni": dni,
-            "correo": correo,
-            "password_hash": hash_password(dni, password),
-            "nickname": nickname,
+            "dni": clean_dni,
+            "correo": clean_correo,
+            "password_hash": hashed_pass,
+            "nickname": clean_nick,
         }
         try:
             resp = client.table(TABLA_USUARIOS).insert(payload).execute()

@@ -6,8 +6,11 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
+import os
 import platform
 import secrets
+import tempfile
 import threading
 import time
 from typing import Any
@@ -40,6 +43,35 @@ _LOCKOUT_WINDOW_SEC = 300.0
 _MAX_FAILED_ATTEMPTS = 5
 _LOCKOUT_DURATION_SEC = 60.0
 _lockout_until: float = 0.0
+_AUTH_GUARD_PATH = os.path.join(tempfile.gettempdir(), ".indiserv_auth_guard_v1.json")
+
+
+def _load_auth_guard_state() -> None:
+    """Carga el estado de bloqueo antibruteforce desde disco para resistir reinicios del proceso."""
+    global _lockout_until
+    try:
+        if not os.path.exists(_AUTH_GUARD_PATH):
+            return
+        with open(_AUTH_GUARD_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data.get("attempts"), list):
+            _failed_attempts[:] = [float(x) for x in data["attempts"] if isinstance(x, (int, float))]
+        if isinstance(data.get("lockout_until"), (int, float)):
+            _lockout_until = float(data["lockout_until"])
+    except Exception:
+        pass
+
+
+def _save_auth_guard_state() -> None:
+    """Persiste el estado de bloqueo antibruteforce en disco."""
+    try:
+        with open(_AUTH_GUARD_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"attempts": _failed_attempts, "lockout_until": _lockout_until}, fh)
+    except Exception:
+        pass
+
+
+_load_auth_guard_state()
 
 
 def hash_password(dni: str, password: str) -> str:
@@ -76,6 +108,7 @@ def generate_secure_ticket_id(dni_or_prefix: str | None, tag: str = "TICKET") ->
 
 def check_login_rate_limit() -> tuple[bool, int]:
     """Verifica si el cliente está bloqueado temporalmente por exceso de intentos fallidos."""
+    _load_auth_guard_state()
     now = time.time()
     if now < _lockout_until:
         return False, max(1, int(_lockout_until - now))
@@ -85,17 +118,20 @@ def check_login_rate_limit() -> tuple[bool, int]:
 def record_failed_login(dni: str, correo: str) -> tuple[bool, int]:
     """Registra un intento fallido y activa bloqueo de 60 s al llegar a 5 fallos."""
     global _lockout_until
+    _load_auth_guard_state()
     now = time.time()
     _failed_attempts[:] = [t for t in _failed_attempts if now - t < _LOCKOUT_WINDOW_SEC]
     _failed_attempts.append(now)
     if len(_failed_attempts) >= _MAX_FAILED_ATTEMPTS:
         _lockout_until = now + _LOCKOUT_DURATION_SEC
         _failed_attempts.clear()
+        _save_auth_guard_state()
         trigger_honeytoken_alert(
             tipo="FUERZA_BRUTA_LOGIN",
             detalle=f"5 intentos fallidos consecutivos sobre DNI='{dni}' correo='{correo}'",
         )
         return True, int(_LOCKOUT_DURATION_SEC)
+    _save_auth_guard_state()
     return False, 0
 
 
@@ -104,6 +140,7 @@ def reset_login_rate_limit() -> None:
     global _lockout_until
     _failed_attempts.clear()
     _lockout_until = 0.0
+    _save_auth_guard_state()
 
 
 def is_honey_credential(dni: str, correo: str = "") -> bool:
