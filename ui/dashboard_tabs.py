@@ -80,7 +80,7 @@ class DashboardMixin:
         boton(der, "⟳ Re-escanear", self._reescanear_rapido,
               variante="util", width=106, height=32, font=F_SMALL,
               hover_border_color=P["cian"]).pack(side="left", padx=(0, 5))
-        boton(der, "Cerrar Sesión", self.pantalla_login,
+        boton(der, "Cerrar Sesión", self.cerrar_sesion,
               variante="peligro", width=104, height=32, font=F_SMALL).pack(side="left")
 
         # Empaquetar el Command Dock ANTES del Tabview con side="bottom" garantiza

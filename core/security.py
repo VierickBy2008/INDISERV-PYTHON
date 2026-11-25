@@ -10,9 +10,11 @@ import json
 import os
 import platform
 import secrets
+import sys
 import tempfile
 import threading
 import time
+import uuid
 from typing import Any
 
 HASH_PREFIX = "indiserv_v1$"
@@ -184,3 +186,80 @@ def trigger_honeytoken_alert(tipo: str, detalle: str) -> str:
 
     threading.Thread(target=_send, daemon=True).start()
     return alert_id
+
+
+_SESSION_FILE_PATH = os.path.join(os.path.expanduser("~"), ".indiserv_session_v1.json")
+
+
+def _read_machine_guid() -> str:
+    """Obtiene un identificador estable del sistema operativo sin requerir privilegios elevados."""
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as key:
+                val, _ = winreg.QueryValueEx(key, "MachineGuid")
+                if val:
+                    return str(val).strip()
+        except Exception:
+            pass
+    else:
+        for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+            try:
+                if os.path.exists(path):
+                    val = open(path, "r", encoding="utf-8").read().strip()
+                    if val:
+                        return val
+            except Exception:
+                pass
+    return f"node-{uuid.getnode()}"
+
+
+def get_device_fingerprint() -> tuple[str, str]:
+    """Retorna (device_hash_sha256, device_label) estable para vincular sesiones y dispositivos confiables."""
+    guid = _read_machine_guid()
+    host = platform.node() or "host"
+    arch = platform.machine() or "x64"
+    os_name = platform.system() or "Desktop"
+    raw = f"INDISERV_DEV_V1::{os_name}::{arch}::{guid}".encode("utf-8")
+    device_hash = hashlib.sha256(raw).hexdigest()
+    device_label = f"{os_name} · {host[:36]}"
+    return device_hash, device_label
+
+
+def save_session_token(token: str, device_hash: str, path: str | None = None) -> None:
+    """Persiste el token opaco de sesión (validado únicamente en servidor) en el perfil del usuario."""
+    target = path or _SESSION_FILE_PATH
+    try:
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump({"token": str(token), "device_hash": str(device_hash)}, fh)
+        if os.name != "nt":
+            os.chmod(target, 0o600)
+    except Exception:
+        pass
+
+
+def load_session_token(path: str | None = None) -> tuple[str, str] | None:
+    """Lee el token guardado si existe; la vigencia de 15 min se valida siempre en PostgreSQL."""
+    target = path or _SESSION_FILE_PATH
+    try:
+        if not os.path.exists(target):
+            return None
+        with open(target, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        tok = str(data.get("token") or "").strip()
+        dh = str(data.get("device_hash") or "").strip()
+        if tok and dh:
+            return tok, dh
+    except Exception:
+        pass
+    return None
+
+
+def clear_session_token(path: str | None = None) -> None:
+    """Elimina el token local de sesión."""
+    target = path or _SESSION_FILE_PATH
+    try:
+        if os.path.exists(target):
+            os.remove(target)
+    except Exception:
+        pass

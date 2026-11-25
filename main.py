@@ -34,6 +34,10 @@ from core.security import (
     reset_login_rate_limit,
     is_honey_credential,
     trigger_honeytoken_alert,
+    get_device_fingerprint,
+    save_session_token,
+    load_session_token,
+    clear_session_token,
 )
 from core.ui_theme import (
     P,
@@ -98,6 +102,9 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
 
         self.dni_usuario_activo: str | None = None
         self.hardware_detectado: dict | None = None
+        self._device_hash, self._device_label = get_device_fingerprint()
+        self._session_token: str | None = None
+        self._otp_timer_after: str | None = None
 
         self.arbol_fase = 0
         self.arbol_rama = -1
@@ -112,8 +119,79 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         self._ultimo_resultado_stress: dict | None = None
 
         self.protocol("WM_DELETE_WINDOW", self._al_cerrar_ventana)
-        self.pantalla_login()
+        self._iniciar_con_sesion_o_login()
         self.after(80, lambda: self._aplicar_pantalla_completa(True))
+
+    def _iniciar_con_sesion_o_login(self):
+        """Si existe un token local, valida en servidor si sigue dentro de los 15 minutos."""
+        saved = load_session_token()
+        if not saved:
+            self.pantalla_login()
+            return
+        tok, dh = saved
+        if dh != self._device_hash:
+            clear_session_token()
+            self.pantalla_login()
+            return
+
+        self.limpiar_panel()
+        frame = ctk.CTkFrame(
+            self, width=420, height=175, corner_radius=0,
+            fg_color=P["card"], border_width=1, border_color=P["borde_fuerte"]
+        )
+        animar_entrada_panel(frame)
+        frame.pack_propagate(False)
+        ctk.CTkLabel(
+            frame, text="Verificando Sesión Segura (15 min)…",
+            font=F_H2, text_color=P["texto"]
+        ).pack(pady=(34, 10))
+        barra = ctk.CTkProgressBar(
+            frame, width=320, height=8, mode="indeterminate",
+            fg_color=P["surface"], progress_color=P["primario"]
+        )
+        barra.pack(pady=8)
+        barra.start()
+        ctk.CTkLabel(
+            frame, text="Validando token y huella de dispositivo en Supabase…",
+            font=F_SMALL, text_color=P["texto_sec"]
+        ).pack(pady=4)
+
+        def _bg_validate():
+            res = CloudGateway.validar_sesion_token(tok, self._device_hash)
+
+            def _apply():
+                if not self.winfo_exists():
+                    return
+                if res.get("ok") and res.get("user"):
+                    user = res["user"]
+                    self._session_token = tok
+                    self.dni_usuario_activo = user.get("dni")
+                    self._mostrar_splash_carga()
+                else:
+                    clear_session_token()
+                    self._session_token = None
+                    self.pantalla_login()
+
+            self.after(0, _apply)
+
+        threading.Thread(target=_bg_validate, daemon=True).start()
+
+    def cerrar_sesion(self):
+        """Revoca la sesión de 15 min inmediatamente en Supabase y limpia el token local."""
+        tok = self._session_token
+        if not tok:
+            saved = load_session_token()
+            if saved:
+                tok = saved[0]
+        clear_session_token()
+        self._session_token = None
+        self.dni_usuario_activo = None
+        if tok:
+            threading.Thread(
+                target=lambda: CloudGateway.revocar_sesion_token(tok, self._device_hash),
+                daemon=True,
+            ).start()
+        self.pantalla_login()
 
     def _al_redimensionar_ventana(self, event=None):
         """Reescala el fondo dinámicamente al cambiar entre ventana y pantalla completa."""
@@ -445,14 +523,31 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
             self.btn_ingresar.configure(state="disabled", text="Verificando credenciales…")
         self.update_idletasks()
 
-        auth_res = CloudGateway.autenticar_usuario_seguro(dni, correo, password)
+        auth_res = CloudGateway.iniciar_login_otp(
+            dni, correo, password, self._device_hash, self._device_label
+        )
         if auth_res.get("error_conexion"):
             if hasattr(self, "btn_ingresar"):
                 self.btn_ingresar.configure(state="normal", text="Ingresar a Consola de Operaciones  →")
             self.lbl_login_error.configure(text=f"⚠ {auth_res['error_conexion']}")
+        elif auth_res.get("requires_otp") and auth_res.get("challenge_id"):
+            reset_login_rate_limit()
+            self.pantalla_verificacion_otp(
+                challenge_id=auth_res["challenge_id"],
+                masked_email=auth_res.get("masked_email") or correo,
+                proposito="new_device",
+                expires_in_sec=int(auth_res.get("expires_in_sec") or 600),
+                resend_cooldown_sec=int(auth_res.get("resend_cooldown_sec") or 60),
+                reenvio_cb=lambda: CloudGateway.iniciar_login_otp(
+                    dni, correo, password, self._device_hash, self._device_label
+                ),
+            )
         elif auth_res.get("autenticado"):
             reset_login_rate_limit()
-            self.dni_usuario_activo = dni
+            if auth_res.get("session_token"):
+                self._session_token = auth_res["session_token"]
+                save_session_token(self._session_token, self._device_hash)
+            self.dni_usuario_activo = auth_res.get("dni") or dni
             self._mostrar_splash_carga()
         else:
             bloqueado, seg_lock = record_failed_login(dni, correo)
@@ -463,7 +558,163 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                     text=f"⏳ Cuenta protegida contra fuerza bruta. Espere {seg_lock} s."
                 )
             else:
-                self.lbl_login_error.configure(text="✖ Credenciales incorrectas o cuenta inexistente.")
+                self.lbl_login_error.configure(
+                    text=f"✖ {auth_res.get('error') or 'Credenciales incorrectas o cuenta inexistente.'}"
+                )
+
+    def pantalla_verificacion_otp(
+        self,
+        challenge_id: str,
+        masked_email: str,
+        proposito: str,
+        expires_in_sec: int = 600,
+        resend_cooldown_sec: int = 60,
+        reenvio_cb=None,
+    ):
+        """Pantalla de verificación por código OTP de 6 dígitos (Registro o Nuevo Dispositivo)."""
+        if self._otp_timer_after:
+            try:
+                self.after_cancel(self._otp_timer_after)
+            except Exception:
+                pass
+            self._otp_timer_after = None
+
+        self.limpiar_panel()
+        self._colocar_boton_fullscreen_flotante()
+
+        state = {
+            "challenge_id": challenge_id,
+            "exp_left": max(60, int(expires_in_sec)),
+            "resend_left": max(0, int(resend_cooldown_sec)),
+        }
+
+        card = ctk.CTkFrame(
+            self, width=460, height=440, corner_radius=0,
+            fg_color=P["card"], border_width=1, border_color=P["borde_fuerte"]
+        )
+        animar_entrada_panel(card)
+        card.pack_propagate(False)
+
+        top = ctk.CTkFrame(card, fg_color=P["surface"], corner_radius=12)
+        top.pack(fill="x", padx=18, pady=(18, 10))
+        titulo = (
+            "Verificación de Registro" if proposito == "register" else "Nuevo Dispositivo Detectado"
+        )
+        ctk.CTkLabel(top, text=f"🔐 {titulo}", font=F_H2, text_color=P["texto"], anchor="w").pack(
+            fill="x", padx=14, pady=(12, 2)
+        )
+        ctk.CTkLabel(
+            top,
+            text=f"Enviamos un código de 6 dígitos a: {masked_email}",
+            font=F_SMALL, text_color=P["cian"], anchor="w", wraplength=400, justify="left"
+        ).pack(fill="x", padx=14, pady=(0, 12))
+
+        cuerpo = ctk.CTkFrame(card, fg_color="transparent")
+        cuerpo.pack(fill="x", padx=26, pady=6)
+
+        overline(cuerpo, "Código de Seguridad (6 dígitos)").pack(anchor="w", pady=(4, 4))
+        entry_otp = entrada(cuerpo, "000000", width=390)
+        entry_otp.configure(font=F_H1, justify="center")
+        entry_otp.pack(fill="x", pady=(0, 6))
+        entry_otp.focus_set()
+
+        lbl_timer = ctk.CTkLabel(cuerpo, text="", font=F_CAPTION, text_color=P["texto_sec"])
+        lbl_timer.pack(anchor="w", pady=(0, 4))
+
+        lbl_err = ctk.CTkLabel(card, text="", text_color=COLOR_ERR, font=F_SMALL, wraplength=400)
+        lbl_err.pack(pady=4)
+
+        def _verificar():
+            code = entry_otp.get().strip()
+            if len(code) != 6 or not code.isdigit():
+                lbl_err.configure(text="⚠ Ingrese exactamente 6 dígitos numéricos.")
+                return
+            btn_ok.configure(state="disabled", text="Verificando código…")
+            self.update_idletasks()
+            if proposito == "register":
+                res = CloudGateway.verificar_otp_registro(
+                    state["challenge_id"], code, self._device_hash, self._device_label
+                )
+            else:
+                res = CloudGateway.verificar_otp_login(
+                    state["challenge_id"], code, self._device_hash, self._device_label
+                )
+
+            if res.get("ok") and res.get("session_token"):
+                if self._otp_timer_after:
+                    try:
+                        self.after_cancel(self._otp_timer_after)
+                    except Exception:
+                        pass
+                    self._otp_timer_after = None
+                self._session_token = res["session_token"]
+                save_session_token(self._session_token, self._device_hash)
+                user = res.get("user") or {}
+                self.dni_usuario_activo = user.get("dni")
+                self._mostrar_splash_carga()
+                toast(
+                    self,
+                    "Dispositivo verificado. Sesión segura activa por 15 minutos.",
+                    tipo="ok",
+                )
+            else:
+                btn_ok.configure(state="normal", text="Verificar Código y Entrar  →")
+                lbl_err.configure(text=f"✖ {res.get('error') or 'Código incorrecto o expirado.'}")
+
+        def _reenviar():
+            if not reenvio_cb or state["resend_left"] > 0:
+                return
+            btn_resend.configure(state="disabled", text="Reenviando…")
+            self.update_idletasks()
+            res = reenvio_cb()
+            if res.get("challenge_id"):
+                state["challenge_id"] = res["challenge_id"]
+                state["exp_left"] = int(res.get("expires_in_sec") or 600)
+                state["resend_left"] = int(res.get("resend_cooldown_sec") or 60)
+                lbl_err.configure(text="")
+                toast(self, f"Nuevo código enviado a {masked_email}.", tipo="info")
+            else:
+                state["resend_left"] = int(res.get("wait_sec") or 30)
+                lbl_err.configure(text=f"⚠ {res.get('error') or 'No se pudo reenviar el código.'}")
+
+        acciones = ctk.CTkFrame(card, fg_color="transparent")
+        acciones.pack(fill="x", padx=26, pady=6)
+        btn_ok = boton(
+            acciones, "Verificar Código y Entrar  →", _verificar,
+            variante="primario", width=390, height=40
+        )
+        btn_ok.pack(fill="x", pady=(0, 8))
+        btn_resend = boton(
+            acciones, f"Reenviar código ({state['resend_left']} s)", _reenviar,
+            variante="util", width=390, height=34, font=F_SMALL
+        )
+        btn_resend.pack(fill="x", pady=(0, 6))
+        boton(
+            acciones, "← Cancelar y volver al Login", self.pantalla_login,
+            variante="fantasma", width=390, height=32, font=F_SMALL
+        ).pack(fill="x")
+
+        entry_otp.bind("<Return>", lambda _e: _verificar())
+
+        def _tick():
+            if not card.winfo_exists():
+                return
+            if state["exp_left"] > 0:
+                state["exp_left"] -= 1
+            mm, ss = divmod(state["exp_left"], 60)
+            lbl_timer.configure(
+                text=f"Expira en: {mm:02d}:{ss:02d}  ·  Máximo 5 intentos"
+                if state["exp_left"] > 0
+                else "Código expirado. Solicite uno nuevo."
+            )
+            if state["resend_left"] > 0:
+                state["resend_left"] -= 1
+                btn_resend.configure(state="disabled", text=f"Reenviar código ({state['resend_left']} s)")
+            else:
+                btn_resend.configure(state="normal", text="↻ Reenviar código al correo")
+            self._otp_timer_after = self.after(1000, _tick)
+
+        _tick()
 
     def _mostrar_splash_carga(self):
         """Reemplaza el login por un indicador de carga mientras el hilo trabaja."""
@@ -621,21 +872,32 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
             self.lbl_reg_error.configure(text="✖ El DNI no figura en el padrón oficial.")
             return
 
-        padron = CloudGateway.consultar_padron(dni)
-        if not padron.get("existe"):
-            self.lbl_reg_error.configure(text="✖ El DNI no figura en el padrón oficial.")
+        res = CloudGateway.iniciar_registro_otp(
+            dni, nick, correo, password, self._device_hash, self._device_label
+        )
+        if res.get("legacy_direct"):
+            if res.get("ok"):
+                self.pantalla_login()
+                toast(self, "Cuenta registrada exitosamente. Ya puede iniciar sesión.", tipo="ok")
+            else:
+                self.lbl_reg_error.configure(text="✖ Error de conexión al registrar. Intente luego.")
             return
 
-        if padron.get("ya_registrado") or CloudGateway.consultar_usuario(dni).get("registrado"):
-            self.lbl_reg_error.configure(text="⚠ Este DNI ya tiene una cuenta registrada.")
-            return
-
-        exito = CloudGateway.registrar_usuario(dni, correo, password, nick)
-        if exito:
-            self.pantalla_login()
-            toast(self, "Cuenta registrada exitosamente. Ya puede iniciar sesión.", tipo="ok")
+        if res.get("ok") and res.get("challenge_id"):
+            self.pantalla_verificacion_otp(
+                challenge_id=res["challenge_id"],
+                masked_email=res.get("masked_email") or correo,
+                proposito="register",
+                expires_in_sec=int(res.get("expires_in_sec") or 600),
+                resend_cooldown_sec=int(res.get("resend_cooldown_sec") or 60),
+                reenvio_cb=lambda: CloudGateway.iniciar_registro_otp(
+                    dni, nick, correo, password, self._device_hash, self._device_label
+                ),
+            )
         else:
-            self.lbl_reg_error.configure(text="✖ Error de conexión al registrar. Intente luego.")
+            self.lbl_reg_error.configure(
+                text=f"✖ {res.get('error') or res.get('error_conexion') or 'No se pudo iniciar la verificación.'}"
+            )
 
 
 

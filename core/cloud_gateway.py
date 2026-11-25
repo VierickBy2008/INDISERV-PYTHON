@@ -10,6 +10,8 @@ from __future__ import annotations
 import traceback
 import threading
 import json as _json
+import urllib.request
+import urllib.error
 from typing import Any
 
 from supabase import create_client, Client
@@ -40,6 +42,155 @@ class CloudGateway:
     Todos los métodos son @staticmethod para mantener compatibilidad con el
     código existente en main.py (se invocan como CloudGateway.metodo()).
     """
+
+    @staticmethod
+    def _auth_otp_post(payload: dict) -> dict:
+        """Invoca la Supabase Edge Function 'auth-otp' por HTTPS sin dependencias externas."""
+        url = f"{SUPABASE_URL.rstrip('/')}/functions/v1/auth-otp"
+        data = _json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                parsed = _json.loads(raw) if raw else {}
+                parsed["_http_status"] = resp.status
+                return parsed
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            try:
+                parsed = _json.loads(raw) if raw else {}
+            except Exception:
+                parsed = {"ok": False, "error": f"HTTP {exc.code}"}
+            parsed["_http_status"] = exc.code
+            if exc.code == 404:
+                parsed["_missing_function"] = True
+            return parsed
+        except Exception as exc:
+            return {"ok": False, "error_conexion": f"Error de conexión con servidor: {str(exc)[:90]}"}
+
+    @staticmethod
+    def iniciar_login_otp(dni: str, correo: str, password: str, device_hash: str, device_label: str) -> dict:
+        from core.security import hash_password
+
+        clean_dni = str(dni or "").strip()
+        clean_correo = str(correo or "").strip()
+        hashed_input = hash_password(clean_dni, password)
+        res = CloudGateway._auth_otp_post(
+            {
+                "action": "login_init",
+                "dni": clean_dni,
+                "correo": clean_correo,
+                "password_hash": hashed_input,
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "plataforma": "desktop",
+            }
+        )
+        if res.get("_missing_function"):
+            # Respaldo temporal si la Edge Function auth-otp aún no fue desplegada en Supabase
+            return CloudGateway.autenticar_usuario_seguro(clean_dni, clean_correo, password)
+        if res.get("error_conexion"):
+            return {"autenticado": False, "error_conexion": res["error_conexion"]}
+        if res.get("ok") and res.get("requires_otp"):
+            return {
+                "autenticado": False,
+                "requires_otp": True,
+                "challenge_id": res.get("challenge_id"),
+                "masked_email": res.get("masked_email"),
+                "expires_in_sec": int(res.get("expires_in_sec") or 600),
+                "resend_cooldown_sec": int(res.get("resend_cooldown_sec") or 60),
+            }
+        if res.get("ok") and res.get("session_token"):
+            user = res.get("user") or {}
+            return {
+                "autenticado": True,
+                "session_token": res["session_token"],
+                "expires_at": res.get("expires_at"),
+                "dni": user.get("dni") or clean_dni,
+                "correo": user.get("correo") or clean_correo,
+                "nickname": user.get("nickname") or "Operador",
+            }
+        return {"autenticado": False, "error": res.get("error") or "Credenciales incorrectas o cuenta inexistente."}
+
+    @staticmethod
+    def verificar_otp_login(challenge_id: str, code: str, device_hash: str, device_label: str) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "login_verify_otp",
+                "challenge_id": challenge_id,
+                "code": str(code or "").strip(),
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "plataforma": "desktop",
+            }
+        )
+
+    @staticmethod
+    def iniciar_registro_otp(
+        dni: str, nickname: str, correo: str, password: str, device_hash: str, device_label: str
+    ) -> dict:
+        from core.security import hash_password
+
+        clean_dni = str(dni or "").strip()
+        hashed_pass = hash_password(clean_dni, password)
+        res = CloudGateway._auth_otp_post(
+            {
+                "action": "register_init",
+                "dni": clean_dni,
+                "nickname": str(nickname or "").strip(),
+                "correo": str(correo or "").strip(),
+                "password_hash": hashed_pass,
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "plataforma": "desktop",
+            }
+        )
+        if res.get("_missing_function"):
+            ok = CloudGateway.registrar_usuario(clean_dni, correo, password, nickname)
+            return {"ok": ok, "legacy_direct": True, "error": "" if ok else "No se pudo registrar la cuenta."}
+        return res
+
+    @staticmethod
+    def verificar_otp_registro(challenge_id: str, code: str, device_hash: str, device_label: str) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "register_verify",
+                "challenge_id": challenge_id,
+                "code": str(code or "").strip(),
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "plataforma": "desktop",
+            }
+        )
+
+    @staticmethod
+    def validar_sesion_token(session_token: str, device_hash: str) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "session_validate",
+                "session_token": session_token,
+                "device_hash": device_hash,
+            }
+        )
+
+    @staticmethod
+    def revocar_sesion_token(session_token: str, device_hash: str) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "session_logout",
+                "session_token": session_token,
+                "device_hash": device_hash,
+            }
+        )
 
     @staticmethod
     def consultar_padron(dni: str) -> dict:
