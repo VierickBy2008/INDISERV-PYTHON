@@ -1318,17 +1318,6 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
             def _apply_reg():
                 if not self.winfo_exists():
                     return
-                if res.get("legacy_direct"):
-                    if res.get("ok"):
-                        self.pantalla_login()
-                        toast(self, "Cuenta registrada exitosamente. Ya puede iniciar sesión.", tipo="ok")
-                    else:
-                        if hasattr(self, "btn_registrar") and self.btn_registrar.winfo_exists():
-                            self.btn_registrar.configure(state="normal", text="Registrar Cuenta en la Nube")
-                        if hasattr(self, "lbl_reg_error") and self.lbl_reg_error.winfo_exists():
-                            self.lbl_reg_error.configure(text="✖ Error de conexión al registrar. Intente luego.")
-                    return
-
                 if res.get("ok") and res.get("challenge_id"):
                     self.pantalla_verificacion_otp(
                         challenge_id=res["challenge_id"],

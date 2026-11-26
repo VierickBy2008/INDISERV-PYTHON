@@ -18,10 +18,15 @@ from urllib.parse import quote
 from core.config import WEB_VIEWER_URL
 
 
-def abrir_gemelo_digital(id_ticket: str, root_widget=None, share_token: str | None = None) -> str:
+def abrir_gemelo_digital(
+    id_ticket: str,
+    root_widget=None,
+    share_token: str | None = None,
+    auto_copy: bool = False,
+) -> str:
     """
-    Construye el enlace al Gemelo Digital 3D (con share_token criptográfico de 128 bits),
-    lo abre en el navegador predeterminado del sistema y lo copia al portapapeles.
+    Construye el enlace al Gemelo Digital 3D (con share_token criptográfico de 128 bits con TTL),
+    lo abre en el navegador predeterminado del sistema y solo copia al portapapeles si auto_copy=True.
     """
     ticket_sanitizado = quote(str(id_ticket).strip())
     st_clean = quote(str(share_token or "").strip())
@@ -38,27 +43,22 @@ def abrir_gemelo_digital(id_ticket: str, root_widget=None, share_token: str | No
     except Exception as exc:
         print(f"[Gemelo Digital] Error al abrir el navegador: {exc}")
 
-    copiado = False
+    if auto_copy:
+        copiado = False
+        if root_widget is not None:
+            try:
+                root_widget.clipboard_clear()
+                root_widget.clipboard_append(enlace_completo)
+                root_widget.update()
+                copiado = True
+            except Exception as exc:
+                print(f"[Gemelo Digital] Error copiando con clipboard de GUI: {exc}")
 
-    if root_widget is not None:
-        try:
-            root_widget.clipboard_clear()
-            root_widget.clipboard_append(enlace_completo)
-            root_widget.update()
-            copiado = True
-            print("[Gemelo Digital] Enlace copiado al portapapeles (GUI).")
-        except Exception as exc:
-            print(f"[Gemelo Digital] Error copiando con clipboard de GUI: {exc}")
-
-    if not copiado:
-        try:
-            import pyperclip
-            pyperclip.copy(enlace_completo)
-            copiado = True
-            print("[Gemelo Digital] Enlace copiado al portapapeles (pyperclip).")
-        except ImportError:
-            print("[Gemelo Digital] pyperclip no disponible; portapapeles no actualizado.")
-        except Exception as exc:
-            print(f"[Gemelo Digital] Error copiando con pyperclip: {exc}")
+        if not copiado:
+            try:
+                import pyperclip
+                pyperclip.copy(enlace_completo)
+            except Exception:
+                pass
 
     return enlace_completo

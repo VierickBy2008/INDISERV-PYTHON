@@ -114,6 +114,7 @@ def _resolver_binario_sistema(cmd_name: str) -> str:
             "sysctl": ("/usr/sbin/sysctl",),
             "system_profiler": ("/usr/sbin/system_profiler",),
             "pmset": ("/usr/bin/pmset",),
+            "ping": ("/sbin/ping", "/usr/bin/ping"),
         }.get(cmd_name, ())
     elif sys.platform.startswith("linux"):
         candidatos = {
@@ -121,11 +122,13 @@ def _resolver_binario_sistema(cmd_name: str) -> str:
             "lspci": ("/usr/bin/lspci", "/usr/sbin/lspci", "/sbin/lspci"),
             "lsblk": ("/usr/bin/lsblk", "/bin/lsblk"),
             "nvidia-smi": ("/usr/bin/nvidia-smi", "/usr/local/bin/nvidia-smi"),
+            "ping": ("/bin/ping", "/usr/bin/ping", "/sbin/ping"),
         }.get(cmd_name, ())
     elif sys.platform == "win32":
         sys_root = os.environ.get("SystemRoot") or r"C:\Windows"
         candidatos = {
             "nvidia-smi": (os.path.join(sys_root, "System32", "nvidia-smi.exe"),),
+            "ping": (os.path.join(sys_root, "System32", "ping.exe"),),
         }.get(cmd_name, ())
     else:
         candidatos = ()
@@ -960,16 +963,19 @@ def _escanear_red_y_so() -> dict[str, Any]:
 
 
 def _ping_latencia(host: str) -> str:
-    """Devuelve la latencia en ms como string (Windows, Linux y macOS), o 'N/A' si falla."""
+    """Devuelve la latencia en ms usando ruta absoluta del binario ping (previene PATH hijacking)."""
     try:
+        ping_exe = _resolver_binario_sistema("ping")
+        if not os.path.isabs(ping_exe) or not os.path.isfile(ping_exe):
+            return "N/A"
         if sys.platform == "win32":
-            cmd = ["ping", "-n", "1", "-w", "2000", host]
+            cmd = [ping_exe, "-n", "1", "-w", "2000", host]
             enc = "cp850"
         elif sys.platform == "darwin":
-            cmd = ["ping", "-c", "1", "-W", "2000", host]
+            cmd = [ping_exe, "-c", "1", "-W", "2000", host]
             enc = "utf-8"
         else:
-            cmd = ["ping", "-c", "1", "-W", "2", host]
+            cmd = [ping_exe, "-c", "1", "-W", "2", host]
             enc = "utf-8"
 
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0

@@ -30,20 +30,45 @@ except ImportError:
                     if _k and _k not in os.environ:
                         os.environ[_k] = _v
 
+from urllib.parse import urlparse
+
 _DEFAULT_WEB_VIEWER_URL = "https://indiserv-web3d.vercel.app"
+_ALLOWED_WEB_VIEWER_HOSTS = frozenset({"indiserv-web3d.vercel.app"})
 
-WEB_VIEWER_URL: str = os.getenv(
-    "WEB_VIEWER_URL", _DEFAULT_WEB_VIEWER_URL
-).rstrip("/")
 
-if "localhost" in WEB_VIEWER_URL or "127.0.0.1" in WEB_VIEWER_URL:
-    import warnings
-    warnings.warn(
-        f"[config] WEB_VIEWER_URL apunta a '{WEB_VIEWER_URL}' (local). "
-        f"Se reemplaza por la URL de producción: {_DEFAULT_WEB_VIEWER_URL}",
-        stacklevel=1,
-    )
-    WEB_VIEWER_URL = _DEFAULT_WEB_VIEWER_URL
+def _sanitizar_web_viewer_url(raw_url: str | None) -> str:
+    """Exige esquema HTTPS y host exacto en lista blanca para prevenir redirección y fuga de #st=."""
+    cand = str(raw_url or "").strip().rstrip("/")
+    if not cand:
+        return _DEFAULT_WEB_VIEWER_URL
+    try:
+        parsed = urlparse(cand)
+        host = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme != "https"
+            or host not in _ALLOWED_WEB_VIEWER_HOSTS
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.port not in (None, 443)
+        ):
+            raise ValueError("origen no permitido")
+        clean_path = parsed.path.rstrip("/")
+        return f"https://{host}{clean_path}"
+    except Exception:
+        import warnings
+        warnings.warn(
+            f"[config] WEB_VIEWER_URL inválida o fuera de lista blanca ('{cand}'). "
+            f"Se usa el origen oficial: {_DEFAULT_WEB_VIEWER_URL}",
+            stacklevel=2,
+        )
+        return _DEFAULT_WEB_VIEWER_URL
+
+
+WEB_VIEWER_URL: str = _sanitizar_web_viewer_url(
+    os.getenv("WEB_VIEWER_URL", _DEFAULT_WEB_VIEWER_URL)
+)
 
 for _canary_var in ("INDISERV_ADMIN_MASTER_KEY", "SUPABASE_SERVICE_ROLE_CANARY"):
     _val = os.getenv(_canary_var, "").strip()

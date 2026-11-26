@@ -143,41 +143,79 @@ class ModalesMixin:
 
         ctk.CTkLabel(
             card,
-            text="El visor interactivo 3D se abrió en su navegador predeterminado y el enlace "
-                 "público quedó copiado en el portapapeles.",
+            text="El visor interactivo 3D se abrió en su navegador predeterminado. "
+                 "El enlace temporal expira en 72 horas y no se copia automáticamente al portapapeles.",
             font=F_SMALL, text_color=P["texto_sec"], wraplength=510, justify="left", anchor="w"
         ).pack(fill="x", padx=16, pady=(2, 8))
 
+        current_url = {"val": url}
         entry_url = entrada(card, "", width=510)
-        entry_url.insert(0, url)
+        entry_url.insert(0, current_url["val"])
         entry_url.configure(state="readonly")
         entry_url.pack(padx=16, pady=6, fill="x")
 
         lbl_copiado = ctk.CTkLabel(
             card,
-            text=f"✔ Enlace público activo y copiado al portapapeles",
-            font=F_SMALL, text_color=COLOR_OK
+            text="🔒 Enlace con vigencia de 72 h · Presiona 'Copiar Enlace' solo si deseas compartirlo",
+            font=F_SMALL, text_color=P["cian"]
         )
         lbl_copiado.pack(pady=(2, 6))
 
         def copiar_portapapeles():
             try:
                 self.clipboard_clear()
-                self.clipboard_append(url)
+                self.clipboard_append(current_url["val"])
                 self.update()
-                lbl_copiado.configure(text="✔ Enlace copiado nuevamente al portapapeles", text_color=COLOR_OK)
+                lbl_copiado.configure(text="✔ Enlace temporal copiado al portapapeles", text_color=COLOR_OK)
             except Exception as e:
                 lbl_copiado.configure(text=f"Error al copiar: {e}", text_color=COLOR_ERR)
+
+        def rotar_enlace():
+            btn_rotar.configure(state="disabled", text="Rotando…")
+            lbl_copiado.configure(text="Invalidando enlace anterior y generando nuevo token…", text_color=P["texto_sec"])
+
+            def _bg():
+                res = CloudGateway.rotar_share_token(id_ticket, ttl_hours=72)
+
+                def _apply():
+                    if not v.winfo_exists():
+                        return
+                    btn_rotar.configure(state="normal", text="🔄 Rotar Enlace")
+                    if res.get("ok") and res.get("share_token"):
+                        from urllib.parse import quote
+                        from core.config import WEB_VIEWER_URL
+                        new_url = f"{WEB_VIEWER_URL}/?ticket={quote(str(id_ticket).strip())}#st={quote(str(res['share_token']).strip())}"
+                        current_url["val"] = new_url
+                        entry_url.configure(state="normal")
+                        entry_url.delete(0, "end")
+                        entry_url.insert(0, new_url)
+                        entry_url.configure(state="readonly")
+                        lbl_copiado.configure(
+                            text="✔ Enlace anterior revocado; nuevo token vigente por 72 h",
+                            text_color=COLOR_OK,
+                        )
+                    else:
+                        lbl_copiado.configure(
+                            text=f"✖ {res.get('error') or res.get('error_conexion') or 'No se pudo rotar el enlace.'}",
+                            text_color=COLOR_ERR,
+                        )
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
 
         btn_box = ctk.CTkFrame(card, fg_color="transparent")
         btn_box.pack(pady=10)
 
         boton(btn_box, "📋 Copiar Enlace", copiar_portapapeles,
-              variante="azul", width=155, height=34, font=F_SMALL).pack(side="left", padx=6)
-        boton(btn_box, "🌐 Reabrir Navegador", lambda: webbrowser.open(url),
-              variante="primario", width=170, height=34, font=F_SMALL).pack(side="left", padx=6)
+              variante="azul", width=130, height=34, font=F_SMALL).pack(side="left", padx=4)
+        btn_rotar = boton(btn_box, "🔄 Rotar Enlace", rotar_enlace,
+              variante="ambar", width=128, height=34, font=F_SMALL)
+        btn_rotar.pack(side="left", padx=4)
+        boton(btn_box, "🌐 Reabrir", lambda: webbrowser.open(current_url["val"]),
+              variante="primario", width=108, height=34, font=F_SMALL).pack(side="left", padx=4)
         boton(btn_box, "Cerrar", v.destroy,
-              variante="neutro", width=100, height=34, font=F_SMALL).pack(side="left", padx=6)
+              variante="neutro", width=88, height=34, font=F_SMALL).pack(side="left", padx=4)
 
     def guardar_reporte_final(self, permanecer: bool = False) -> tuple[str, str]:
         """Exporta el reporte en TXT y JSON, registra bitácora y sincroniza en la nube."""

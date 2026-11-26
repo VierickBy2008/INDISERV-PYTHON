@@ -11,14 +11,10 @@ import os
 import platform
 import secrets
 import sys
-import tempfile
 import threading
 import time
 import uuid
 from typing import Any
-
-HASH_PREFIX = "indiserv_v1$"
-HASH_SALT_NAMESPACE = "INDISERV_SALT_2026"
 
 HONEY_DNIS = {"00000000", "99999999", "12345678", "87654321", "11111111", "admin", "root"}
 HONEY_EMAILS = {
@@ -45,11 +41,12 @@ _LOCKOUT_WINDOW_SEC = 300.0
 _MAX_FAILED_ATTEMPTS = 5
 _LOCKOUT_DURATION_SEC = 60.0
 _lockout_until: float = 0.0
-_AUTH_GUARD_PATH = os.path.join(tempfile.gettempdir(), ".indiserv_auth_guard_v1.json")
+# Almacenar en directorio privado del usuario (evita /tmp compartido multiusuario en POSIX)
+_AUTH_GUARD_PATH = os.path.join(os.path.expanduser("~"), ".indiserv_auth_guard_v1.json")
 
 
 def _load_auth_guard_state() -> None:
-    """Carga el estado de bloqueo antibruteforce desde disco para resistir reinicios del proceso."""
+    """Carga el estado de bloqueo antibruteforce desde el directorio privado del usuario."""
     global _lockout_until
     try:
         if not os.path.exists(_AUTH_GUARD_PATH):
@@ -65,39 +62,22 @@ def _load_auth_guard_state() -> None:
 
 
 def _save_auth_guard_state() -> None:
-    """Persiste el estado de bloqueo antibruteforce en disco."""
+    """Persiste el estado de bloqueo antibruteforce con permisos estrictos 0600 en POSIX."""
     try:
-        with open(_AUTH_GUARD_PATH, "w", encoding="utf-8") as fh:
-            json.dump({"attempts": _failed_attempts, "lockout_until": _lockout_until}, fh)
+        payload = {"attempts": _failed_attempts, "lockout_until": _lockout_until}
+        if os.name != "nt":
+            fd = os.open(_AUTH_GUARD_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
+            os.chmod(_AUTH_GUARD_PATH, 0o600)
+        else:
+            with open(_AUTH_GUARD_PATH, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
     except Exception:
         pass
 
 
 _load_auth_guard_state()
-
-
-def hash_password(dni: str, password: str) -> str:
-    """Genera un hash SHA-256 determinista con sal vinculada al DNI (compatible con WebCrypto en JS)."""
-    clean_dni = str(dni or "").strip()
-    clean_pass = str(password or "")
-    if clean_pass.startswith(HASH_PREFIX):
-        return clean_pass
-    raw = f"{HASH_SALT_NAMESPACE}::{clean_dni}::{clean_pass}".encode("utf-8")
-    return f"{HASH_PREFIX}{hashlib.sha256(raw).hexdigest()}"
-
-
-def verify_password(dni: str, plain_password: str, stored_hash: str) -> tuple[bool, bool]:
-    """
-    Verifica la contraseña contra stored_hash.
-    Retorna (es_valida, requiere_migracion_hash).
-    """
-    if not stored_hash or not plain_password:
-        return False, False
-    expected = hash_password(dni, plain_password)
-    if stored_hash.startswith(HASH_PREFIX):
-        return secrets.compare_digest(stored_hash, expected), False
-    is_legacy_match = secrets.compare_digest(stored_hash, plain_password)
-    return is_legacy_match, is_legacy_match
 
 
 def generate_secure_ticket_id(dni_or_prefix: str | None, tag: str = "TICKET") -> str:

@@ -7,6 +7,10 @@ Logging explícito en consola para depuración de errores HTTP.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import http.client
+import ssl
 import traceback
 import threading
 import json as _json
@@ -15,27 +19,98 @@ import urllib.error
 from typing import Any
 
 SUPABASE_URL  = "https://pvrfnvrxaxulcxacdino.supabase.co"
+SUPABASE_HOST = "pvrfnvrxaxulcxacdino.supabase.co"
 SUPABASE_KEY  = "sb_publishable_G7D4dhh3Q2LWzgRnzRRa9A_4ngZ5FiW"
+
+# Pines SPKI SHA-256 reales de Google Trust Services / GlobalSign (sincronizados con Android network_security_config.xml)
+SUPABASE_SPKI_PINS: frozenset[str] = frozenset({
+    "kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4=",  # GTS WE1 (intermedia Supabase)
+    "yDu9og255NN5GEf+Bwa9rTrqFQ0EydZ0r1FCh9TdAW4=",  # GTS WR1 (intermedia Vercel)
+    "mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=",  # GTS Root R4
+    "hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=",  # GTS Root R1
+    "K87oWBWM9UZfyddvDfoxL+8lpNyoUB2ptGtn0fv6G2Q=",  # GlobalSign Root CA
+})
 
 TABLA_TICKETS = "reportes_diagnostico"
 TABLA_PADRON  = "padron_oficial"
 TABLA_USUARIOS = "usuarios_app"
 
 _CLIENT_LOCK = threading.Lock()
-_CLIENT_INSTANCE: Any = None
+_PINNED_OPENER: urllib.request.OpenerDirector | None = None
 _WARMUP_STARTED: bool = False
 
 
-def _get_client() -> Any:
-    """Devuelve una instancia singleton thread-safe del cliente Supabase (importación diferida)."""
-    global _CLIENT_INSTANCE
-    if _CLIENT_INSTANCE is None:
-        with _CLIENT_LOCK:
-            if _CLIENT_INSTANCE is None:
-                from supabase import create_client
+def _build_pinned_ssl_context() -> ssl.SSLContext:
+    """Construye un SSLContext TLS >= 1.2 respaldado por certifi (inmune a CAs corporativas/MitM)."""
+    cafile = None
+    try:
+        import certifi
+        cafile = certifi.where()
+    except Exception:
+        cafile = None
+    ctx = ssl.create_default_context(cafile=cafile) if cafile else ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    return ctx
 
-                _CLIENT_INSTANCE = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return _CLIENT_INSTANCE
+
+def _compute_der_spki_pin(der_cert: bytes) -> str:
+    """Calcula el hash SPKI SHA-256 en Base64 de un certificado X.509 DER."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import serialization
+
+    cert = x509.load_der_x509_certificate(der_cert)
+    spki = cert.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return base64.b64encode(hashlib.sha256(spki).digest()).decode("ascii")
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """Conexión HTTPS que exige coincidencia SPKI SHA-256 en la cadena verificada de Supabase."""
+
+    def connect(self) -> None:
+        super().connect()
+        host_clean = (self.host or "").split(":", 1)[0].strip().lower()
+        if host_clean != SUPABASE_HOST:
+            return
+        sock = self.sock
+        if sock is None:
+            raise ssl.SSLCertVerificationError("Socket TLS no disponible para validación SPKI.")
+        get_chain = getattr(sock, "get_verified_chain", None)
+        if callable(get_chain):
+            chain = get_chain() or ()
+            pins = {_compute_der_spki_pin(der) for der in chain}
+            if SUPABASE_SPKI_PINS.isdisjoint(pins):
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+                raise ssl.SSLCertVerificationError(
+                    "Pinning TLS SPKI rechazado: cadena de certificados no coincide con los pines autorizados."
+                )
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, context: ssl.SSLContext) -> None:
+        super().__init__(context=context)
+
+    def https_open(self, req: urllib.request.Request):
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
+
+
+def _get_pinned_opener() -> urllib.request.OpenerDirector:
+    """Devuelve el opener HTTPS singleton con TLS 1.2+ certifi y SPKI pinning."""
+    global _PINNED_OPENER
+    if _PINNED_OPENER is None:
+        with _CLIENT_LOCK:
+            if _PINNED_OPENER is None:
+                _PINNED_OPENER = urllib.request.build_opener(
+                    _PinnedHTTPSHandler(_build_pinned_ssl_context())
+                )
+    return _PINNED_OPENER
 
 
 class CloudGateway:
@@ -46,15 +121,15 @@ class CloudGateway:
 
     @staticmethod
     def warm_up_async() -> None:
-        """Precarga supabase-py en segundo plano sin bloquear el arranque de la ventana."""
+        """Precalienta el contexto TLS con pinning SPKI en segundo plano sin bloquear la ventana."""
         global _WARMUP_STARTED
-        if _WARMUP_STARTED or _CLIENT_INSTANCE is not None:
+        if _WARMUP_STARTED or _PINNED_OPENER is not None:
             return
         _WARMUP_STARTED = True
 
         def _bg():
             try:
-                _get_client()
+                _get_pinned_opener()
             except Exception:
                 pass
 
@@ -62,7 +137,7 @@ class CloudGateway:
 
     @staticmethod
     def _auth_otp_post(payload: dict) -> dict:
-        """Invoca la Supabase Edge Function 'auth-otp' por HTTPS sin dependencias externas."""
+        """Invoca la Supabase Edge Function 'auth-otp' por HTTPS con pinning SPKI SHA-256."""
         url = f"{SUPABASE_URL.rstrip('/')}/functions/v1/auth-otp"
         data = _json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -76,7 +151,7 @@ class CloudGateway:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=12) as resp:
+            with _get_pinned_opener().open(req, timeout=12) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
                 parsed = _json.loads(raw) if raw else {}
                 parsed["_http_status"] = resp.status
@@ -92,7 +167,7 @@ class CloudGateway:
                 parsed["_missing_function"] = True
             return parsed
         except Exception as exc:
-            return {"ok": False, "error_conexion": f"Error de conexión con servidor: {str(exc)[:90]}"}
+            return {"ok": False, "error_conexion": f"Error de conexión segura con servidor: {str(exc)[:90]}"}
 
     @staticmethod
     def iniciar_login_otp(dni: str, correo: str, password: str, device_hash: str, device_label: str) -> dict:
@@ -376,6 +451,29 @@ class CloudGateway:
     @staticmethod
     def obtener_share_token(ticket_id: str) -> str:
         return CloudGateway._share_tokens.get(str(ticket_id or "").strip(), "")
+
+    @staticmethod
+    def rotar_share_token(ticket_id: str, ttl_hours: int = 72) -> dict:
+        """Rota e invalida de inmediato el share_token (#st=) de un ticket propio en servidor."""
+        from core.security import load_session_token
+
+        sess = load_session_token()
+        if not sess:
+            return {"ok": False, "error": "Sesión activa requerida."}
+        tok, dev_hash = sess
+        tid = str(ticket_id or "").strip()
+        res = CloudGateway._auth_otp_post(
+            {
+                "action": "ticket_rotate_share_token",
+                "session_token": tok,
+                "device_hash": dev_hash,
+                "ticket_id": tid,
+                "ttl_hours": int(ttl_hours),
+            }
+        )
+        if res.get("ok") and res.get("share_token"):
+            CloudGateway._share_tokens[tid] = str(res["share_token"]).strip()
+        return res
 
     @staticmethod
     def subir_ticket(ticket_id: str, dni: str, hw: dict, diag: dict) -> bool:
