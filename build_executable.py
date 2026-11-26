@@ -44,6 +44,8 @@ def main() -> int:
         "--hidden-import",
         "core.security",
         "--hidden-import",
+        "supabase",
+        "--hidden-import",
         "ui",
         "--hidden-import",
         "ui.dashboard_tabs",

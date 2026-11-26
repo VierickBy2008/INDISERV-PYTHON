@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import tkinter as tk
 import customtkinter as ctk
 
 from core.hardware import LectorHardware, calcular_health_score, _inferir_refrigeracion
@@ -150,19 +151,43 @@ class DashboardMixin:
             hover_border_color=P["borde_fuerte"],
         ).grid(row=0, column=4, sticky="ew", padx=(5, 0))
 
+        self._hw_dashboard = hw
+        self._tabs_cargadas: set[str] = set()
         self.tabs_dashboard = ctk.CTkTabview(
-            frame, **estilo_tabview()
+            frame, command=self._cargar_tab_dashboard_actual, **estilo_tabview()
         )
         self.tabs_dashboard.pack(side="top", fill="both", expand=True, pady=(0, 4), padx=14)
 
         for nombre in ("General", "CPU / RAM", "Gráficos", "Discos", "Red"):
             self.tabs_dashboard.add(nombre)
 
-        self._tab_general(self.tabs_dashboard.tab("General"), hw)
-        self._tab_cpu_ram(self.tabs_dashboard.tab("CPU / RAM"), hw)
-        self._tab_graficos(self.tabs_dashboard.tab("Gráficos"), hw)
-        self._tab_discos(self.tabs_dashboard.tab("Discos"), hw)
-        self._tab_red(self.tabs_dashboard.tab("Red"), hw)
+        # Renderizado diferido (lazy): solo construimos "General" al entrar y
+        # las demás pestañas se crean al primer clic para ahorrar >70% de widgets iniciales.
+        self._cargar_tab_dashboard("General")
+
+    def _cargar_tab_dashboard_actual(self):
+        try:
+            nombre = self.tabs_dashboard.get()
+        except Exception:
+            return
+        self._cargar_tab_dashboard(nombre)
+
+    def _cargar_tab_dashboard(self, nombre: str):
+        if nombre in self._tabs_cargadas:
+            return
+        self._tabs_cargadas.add(nombre)
+        hw = self._hw_dashboard or {}
+        tab = self.tabs_dashboard.tab(nombre)
+        constructores = {
+            "General": self._tab_general,
+            "CPU / RAM": self._tab_cpu_ram,
+            "Gráficos": self._tab_graficos,
+            "Discos": self._tab_discos,
+            "Red": self._tab_red,
+        }
+        fn = constructores.get(nombre)
+        if fn:
+            fn(tab, hw)
 
     def _reescanear_rapido(self):
         toast(self, "Actualizando telemetría del equipo en segundo plano…", tipo="info", duracion_ms=1800)
@@ -398,14 +423,48 @@ class DashboardMixin:
         scroll_cores.grid_columnconfigure(0, weight=1)
         scroll_cores.grid_columnconfigure(1, weight=1)
 
-        usos = hw.get("uso_por_nucleo", []) or []
-        for idx, pct in enumerate(usos):
-            celda = ctk.CTkFrame(scroll_cores, fg_color="transparent")
-            celda.grid(row=idx // 2, column=idx % 2, padx=6, pady=3, sticky="ew")
-            BarraMetrica(
-                celda, f"Core #{idx}", float(pct), f"{ float(pct):.0f}%",
-                warn=75, err=92, alto_barra=6
-            ).pack(fill="x")
+        usos = [float(p or 0.0) for p in (hw.get("uso_por_nucleo", []) or [])]
+        filas_cores = max(1, (len(usos) + 1) // 2)
+        alto_canvas = max(120, filas_cores * 32 + 12)
+        canvas_cores = tk.Canvas(
+            scroll_cores, height=alto_canvas, bg=P["surface"], highlightthickness=0, bd=0
+        )
+        canvas_cores.grid(row=0, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
+
+        def _dibujar_cores(event=None):
+            w = max(320, event.width if event else canvas_cores.winfo_width())
+            if w <= 1:
+                w = 380
+            canvas_cores.delete("all")
+            pad_x, gap_x, row_h = 8, 16, 32
+            col_w = max(110, (w - 2 * pad_x - gap_x) / 2.0)
+            for idx, pct in enumerate(usos):
+                col = idx % 2
+                row = idx // 2
+                x0 = pad_x + col * (col_w + gap_x)
+                y0 = 6 + row * row_h
+                pct_c = max(0.0, min(100.0, pct))
+                fill_col = color_por_umbral(pct_c, warn=75, err=92)
+                canvas_cores.create_text(
+                    x0, y0, text=f"Core #{idx}", anchor="nw",
+                    fill=P["texto_sec"], font=F_CAPTION
+                )
+                canvas_cores.create_text(
+                    x0 + col_w, y0, text=f"{pct_c:.0f}%", anchor="ne",
+                    fill=P["texto"], font=F_CAPTION
+                )
+                by = y0 + 16
+                canvas_cores.create_rectangle(
+                    x0, by, x0 + col_w, by + 6, fill=P["card_alt"], outline=""
+                )
+                fw = max(2.0, col_w * (pct_c / 100.0)) if pct_c > 0 else 0
+                if fw > 0:
+                    canvas_cores.create_rectangle(
+                        x0, by, x0 + fw, by + 6, fill=fill_col, outline=""
+                    )
+
+        canvas_cores.bind("<Configure>", _dibujar_cores)
+        _dibujar_cores()
 
         c_ram = tarjeta(cont)
         c_ram.grid(row=0, column=1, padx=(5, 0), sticky="nsew")

@@ -14,8 +14,6 @@ import urllib.request
 import urllib.error
 from typing import Any
 
-from supabase import create_client, Client
-
 SUPABASE_URL  = "https://pvrfnvrxaxulcxacdino.supabase.co"
 SUPABASE_KEY  = "sb_publishable_G7D4dhh3Q2LWzgRnzRRa9A_4ngZ5FiW"
 
@@ -24,15 +22,18 @@ TABLA_PADRON  = "padron_oficial"
 TABLA_USUARIOS = "usuarios_app"
 
 _CLIENT_LOCK = threading.Lock()
-_CLIENT_INSTANCE: Client | None = None
+_CLIENT_INSTANCE: Any = None
+_WARMUP_STARTED: bool = False
 
 
-def _get_client() -> Client:
-    """Devuelve una instancia singleton thread-safe del cliente Supabase reutilizando conexiones HTTP."""
+def _get_client() -> Any:
+    """Devuelve una instancia singleton thread-safe del cliente Supabase (importación diferida)."""
     global _CLIENT_INSTANCE
     if _CLIENT_INSTANCE is None:
         with _CLIENT_LOCK:
             if _CLIENT_INSTANCE is None:
+                from supabase import create_client
+
                 _CLIENT_INSTANCE = create_client(SUPABASE_URL, SUPABASE_KEY)
     return _CLIENT_INSTANCE
 
@@ -42,6 +43,22 @@ class CloudGateway:
     Todos los métodos son @staticmethod para mantener compatibilidad con el
     código existente en main.py (se invocan como CloudGateway.metodo()).
     """
+
+    @staticmethod
+    def warm_up_async() -> None:
+        """Precarga supabase-py en segundo plano sin bloquear el arranque de la ventana."""
+        global _WARMUP_STARTED
+        if _WARMUP_STARTED or _CLIENT_INSTANCE is not None:
+            return
+        _WARMUP_STARTED = True
+
+        def _bg():
+            try:
+                _get_client()
+            except Exception:
+                pass
+
+        threading.Thread(target=_bg, daemon=True).start()
 
     @staticmethod
     def _auth_otp_post(payload: dict) -> dict:

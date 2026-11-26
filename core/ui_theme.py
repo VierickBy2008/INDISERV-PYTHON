@@ -150,15 +150,24 @@ def animar_entrada_panel(
     panel,
     relx: float = 0.5,
     rely_final: float = 0.5,
-    desplazamiento: float = 0.024,
-    pasos: int = 12,
+    desplazamiento: float = 0.012,
+    pasos: int = 5,
 ) -> None:
     """
-    Desliza suavemente un contenedor principal hacia su posición central a 60 FPS (16 ms).
-    Coloca el widget de inmediato para que winfo_exists() y los tests sincrónicos funcionen.
+    Posiciona el panel con transición corta para tarjetas compactas y colocación
+    instantánea en contenedores grandes para evitar re-layout pesado en Tkinter.
     """
     if not _vivo(panel):
         return
+    try:
+        req_w = int(panel.cget("width") or 0)
+    except Exception:
+        req_w = 0
+
+    if req_w >= 620 or desplazamiento <= 0 or pasos <= 1:
+        panel.place(relx=relx, rely=rely_final, anchor="center")
+        return
+
     rely_ini = rely_final + desplazamiento
     panel.place(relx=relx, rely=rely_ini, anchor="center")
 
@@ -178,40 +187,23 @@ def animar_entrada_panel(
 
 
 def _adjuntar_hover_borde_60fps(widget, color_base: str, color_hover: str, pasos: int = 8) -> None:
-    """Anima el color del borde de una tarjeta o botón a 60 FPS al pasar el cursor."""
-    estado = {"t": 0.0, "target": 0.0, "after": None}
-
-    def _tick():
-        if not _vivo(widget):
-            return
-        actual = estado["t"]
-        meta = estado["target"]
-        diff = meta - actual
-        if abs(diff) < 0.08:
-            estado["t"] = meta
-            try:
-                widget.configure(border_color=_lerp_hex(color_base, color_hover, meta))
-            except Exception:
-                pass
-            estado["after"] = None
-            return
-        estado["t"] = actual + diff * 0.35
-        try:
-            widget.configure(border_color=_lerp_hex(color_base, color_hover, estado["t"]))
-        except Exception:
-            estado["after"] = None
-            return
-        estado["after"] = widget.after(FRAME_MS, _tick)
+    """Realza el borde en 1 paso nítido al pasar el cursor sin saturar el canvas de CustomTkinter."""
+    if color_base == color_hover:
+        return
 
     def _on_enter(_e=None):
-        estado["target"] = 1.0
-        if estado["after"] is None and _vivo(widget):
-            estado["after"] = widget.after(FRAME_MS, _tick)
+        if _vivo(widget):
+            try:
+                widget.configure(border_color=color_hover)
+            except Exception:
+                pass
 
     def _on_leave(_e=None):
-        estado["target"] = 0.0
-        if estado["after"] is None and _vivo(widget):
-            estado["after"] = widget.after(FRAME_MS, _tick)
+        if _vivo(widget):
+            try:
+                widget.configure(border_color=color_base)
+            except Exception:
+                pass
 
     try:
         widget.bind("<Enter>", _on_enter, add="+")
@@ -246,70 +238,33 @@ def boton(parent, texto: str, comando: Callable | None = None,
     opciones.update(kw)
     btn = ctk.CTkButton(parent, **opciones)
     borde_base = opciones.get("border_color", P["borde_fuerte"])
+    tiene_borde = bool(hover_borde and opciones.get("border_width", 0))
+
+    if tiene_borde:
+        _adjuntar_hover_borde_60fps(btn, borde_base, hover_borde)
 
     if fg != "transparent":
-        press_col = _lerp_hex(fg, "#000000", 0.24)
-        est = {"t": 0.0, "target": 0.0, "after": None, "pressed": False}
-
-        def _anim_bg():
-            if not _vivo(btn) or est["pressed"]:
-                est["after"] = None
-                return
-            diff = est["target"] - est["t"]
-            if abs(diff) < 0.06:
-                est["t"] = est["target"]
-                try:
-                    btn.configure(fg_color=_lerp_hex(fg, hover, est["t"]))
-                    if hover_borde and opciones.get("border_width", 0):
-                        btn.configure(border_color=_lerp_hex(borde_base, hover_borde, est["t"]))
-                except Exception:
-                    pass
-                est["after"] = None
-                return
-            est["t"] += diff * 0.42
-            try:
-                btn.configure(fg_color=_lerp_hex(fg, hover, est["t"]))
-                if hover_borde and opciones.get("border_width", 0):
-                    btn.configure(border_color=_lerp_hex(borde_base, hover_borde, est["t"]))
-            except Exception:
-                est["after"] = None
-                return
-            est["after"] = btn.after(FRAME_MS, _anim_bg)
-
-        def _enter(_e=None):
-            est["target"] = 1.0
-            if not est["pressed"] and est["after"] is None and _vivo(btn):
-                est["after"] = btn.after(FRAME_MS, _anim_bg)
-
-        def _leave(_e=None):
-            est["target"] = 0.0
-            est["pressed"] = False
-            if est["after"] is None and _vivo(btn):
-                est["after"] = btn.after(FRAME_MS, _anim_bg)
+        press_col = _lerp_hex(fg, "#000000", 0.22)
 
         def _press(_e=None):
-            est["pressed"] = True
-            try:
-                btn.configure(fg_color=press_col)
-                if hover_borde and opciones.get("border_width", 0):
-                    btn.configure(border_color=hover_borde)
-            except Exception:
-                pass
+            if _vivo(btn):
+                try:
+                    btn.configure(fg_color=press_col)
+                except Exception:
+                    pass
 
         def _release(_e=None):
-            est["pressed"] = False
-            if est["after"] is None and _vivo(btn):
-                est["after"] = btn.after(FRAME_MS, _anim_bg)
+            if _vivo(btn):
+                try:
+                    btn.configure(fg_color=fg)
+                except Exception:
+                    pass
 
         try:
-            btn.bind("<Enter>", _enter, add="+")
-            btn.bind("<Leave>", _leave, add="+")
             btn.bind("<ButtonPress-1>", _press, add="+")
             btn.bind("<ButtonRelease-1>", _release, add="+")
         except Exception:
             pass
-    else:
-        _adjuntar_hover_borde_60fps(btn, borde_base, hover_borde or P["cian"])
 
     return btn
 
@@ -429,10 +384,11 @@ class Badge(ctk.CTkLabel):
 
 
 class BarraMetrica(ctk.CTkFrame):
-    """Etiqueta + valor + barra de progreso con interpolación fluida a 60 FPS (16 ms)."""
+    """Etiqueta + valor + barra de progreso con interpolación fluida y bajo costo de redibujado."""
 
     def __init__(self, parent, titulo: str, valor_pct: float = 0.0, texto_valor: str = "",
-                 warn: float = 70, err: float = 90, alto_barra: int = 8, **kw):
+                 warn: float = 70, err: float = 90, alto_barra: int = 8,
+                 animar: bool = True, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
         self._warn, self._err = warn, err
         self._actual = 0.0
@@ -452,7 +408,7 @@ class BarraMetrica(ctk.CTkFrame):
                                         fg_color=P["surface"], progress_color=P["primario"])
         self.barra.pack(fill="x", pady=(3, 0))
         self.barra.set(0)
-        self.set(valor_pct, texto_valor, animar=True)
+        self.set(valor_pct, texto_valor, animar=animar)
 
     def set(self, valor_pct: float, texto_valor: str | None = None, animar: bool = True):
         try:
@@ -468,26 +424,27 @@ class BarraMetrica(ctk.CTkFrame):
             except Exception:
                 pass
             self._after = None
-        if not animar:
+        if not animar or abs(destino - self._actual) < 0.5:
             self._actual = destino
-            self._color_actual = color_dest
-            self.barra.configure(progress_color=color_dest)
+            if color_dest != self._color_actual:
+                self._color_actual = color_dest
+                self.barra.configure(progress_color=color_dest)
             self.barra.set(destino / 100)
             return
-        self._animar(self._actual, destino, self._color_actual, color_dest, paso=0, total=22)
+        if color_dest != self._color_actual:
+            self._color_actual = color_dest
+            self.barra.configure(progress_color=color_dest)
+        self._animar(self._actual, destino, paso=0, total=6)
 
-    def _animar(self, desde: float, hasta: float, col_ini: str, col_fin: str, paso: int, total: int):
+    def _animar(self, desde: float, hasta: float, paso: int, total: int):
         if not _vivo(self):
             return
         t = _ease_out_quart((paso + 1) / total)
         valor = desde + (hasta - desde) * t
-        col = _lerp_hex(col_ini, col_fin, t)
         self._actual = valor
-        self._color_actual = col
-        self.barra.configure(progress_color=col)
         self.barra.set(valor / 100)
         if paso + 1 < total:
-            self._after = self.after(FRAME_MS, lambda: self._animar(desde, hasta, col_ini, col_fin, paso + 1, total))
+            self._after = self.after(20, lambda: self._animar(desde, hasta, paso + 1, total))
         else:
             self._after = None
 
@@ -497,7 +454,7 @@ class BarraMetrica(ctk.CTkFrame):
 
 
 class TarjetaMetrica(ctk.CTkFrame):
-    """KPI compacto con realce de borde a 60 FPS en hover y al actualizar valores."""
+    """KPI compacto con realce de borde nítido en hover y al actualizar valores."""
 
     def __init__(self, parent, titulo: str, valor: str = "—", subtitulo: str = "",
                  color: str | None = None, **kw):
@@ -525,27 +482,33 @@ class TarjetaMetrica(ctk.CTkFrame):
             self.lbl_sub.configure(text=subtitulo)
         self._pulso_borde_60fps()
 
-    def _pulso_borde_60fps(self, paso: int = 0, total: int = 10):
+    def _pulso_borde_60fps(self, paso: int = 0, total: int = 1):
         if not _vivo(self):
             return
-        if self._flash_after and paso == 0:
+        if self._flash_after:
             try:
                 self.after_cancel(self._flash_after)
             except Exception:
                 pass
-        t = 1.0 - (paso / total)
+            self._flash_after = None
         try:
-            self.configure(border_color=_lerp_hex(P["borde"], self._acento, t * 0.65))
+            self.configure(border_color=self._acento)
         except Exception:
             return
-        if paso < total:
-            self._flash_after = self.after(FRAME_MS, lambda: self._pulso_borde_60fps(paso + 1, total))
-        else:
+
+        def _restaurar():
             self._flash_after = None
+            if _vivo(self):
+                try:
+                    self.configure(border_color=P["borde"])
+                except Exception:
+                    pass
+
+        self._flash_after = self.after(220, _restaurar)
 
 
 class PuntoPulso(ctk.CTkLabel):
-    """Indicador '●' con respiración sinusoidal continua a 60 FPS (16 ms)."""
+    """Indicador '●' con respiración sinusoidal eficiente (~10 Hz, sin saturar Tkinter)."""
 
     def __init__(self, parent, color: str = P["primario"], **kw):
         super().__init__(parent, text="●", font=("Segoe UI", 14), text_color=P["texto_dim"], **kw)
@@ -580,11 +543,11 @@ class PuntoPulso(ctk.CTkLabel):
     def _tick(self):
         if not self._on or not _vivo(self):
             return
-        self._fase = (self._fase + 0.14) % (2.0 * math.pi)
+        self._fase = (self._fase + 0.45) % (2.0 * math.pi)
         onda = 0.5 + 0.5 * math.sin(self._fase)
         col = _lerp_hex(P["borde_fuerte"], self._color, onda)
         self.configure(text_color=col)
-        self._after = self.after(FRAME_MS, self._tick)
+        self._after = self.after(100, self._tick)
 
 
 class Sparkline(tk.Canvas):
@@ -676,8 +639,8 @@ class Sparkline(tk.Canvas):
                              fill=s["color"], outline="", tags="serie")
 
 
-def fade_in(ventana, duracion_ms: int = 224, pasos: int = 14):
-    """Aparición gradual a 60 FPS (16 ms por frame) con curva ease-out."""
+def fade_in(ventana, duracion_ms: int = 100, pasos: int = 5):
+    """Aparición gradual ágil (5 pasos) con mínimo costo para el compositor DWM."""
     try:
         ventana.attributes("-alpha", 0.0)
     except Exception:
@@ -691,7 +654,7 @@ def fade_in(ventana, duracion_ms: int = 224, pasos: int = 14):
         except Exception:
             return
         if i < pasos:
-            ventana.after(FRAME_MS, lambda: _paso(i + 1))
+            ventana.after(20, lambda: _paso(i + 1))
 
     _paso(1)
 
