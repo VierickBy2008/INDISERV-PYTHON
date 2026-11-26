@@ -8,6 +8,7 @@ import random
 import customtkinter as ctk
 
 from core.diagnostico import (
+    EvaluadorTelemetria,
     MatrizSintomas,
     BuscadorAsistido,
     CATALOGO_DICTAMENES,
@@ -542,11 +543,13 @@ class DiagnosticoMixin:
         overline(self._panel_dictamen_busq, "Guía de Solución Paso a Paso", color=P["cian"]).pack(
             anchor="w", padx=12, pady=(2, 2)
         )
+        ficha_cpuz = EvaluadorTelemetria.generar_ficha_cpuz_texto(self.hardware_detectado)
         tb_sol = ctk.CTkTextbox(self._panel_dictamen_busq, height=135, **estilo_textbox())
         tb_sol.pack(fill="both", expand=True, padx=10, pady=(0, 6))
         self._insertar_y_bloquear(
             tb_sol,
-            f"{df['solucion']}\n\nTicket activo: {ticket}  ·  Código Interno: #{df['codigo']}"
+            f"{df['solucion']}\n\n{ficha_cpuz}\n\n"
+            f"Ticket preparado: {ticket}  ·  Código Interno: #{df['codigo']} (guardado manual bajo demanda)"
         )
 
         overline(self._panel_dictamen_busq, "Acciones Directas Disponibles").pack(

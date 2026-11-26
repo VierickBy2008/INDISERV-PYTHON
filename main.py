@@ -1169,18 +1169,9 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         hilo.start()
 
     def _hilo_escaneo_hardware(self):
-        """Ejecutado en hilo secundario: escanea hardware y luego notifica a la GUI."""
+        """Ejecutado en hilo secundario: escanea hardware sin autoguardar tickets en la nube."""
         try:
             self.hardware_detectado = LectorHardware.escanear_entorno()
-            hw = self.hardware_detectado or {}
-            score = calcular_health_score(hw)
-            self._registrar_evento_nube(
-                tipo_evento="Escaneo Inicial",
-                categoria="Escaneo de Hardware",
-                subcategoria=f"Telemetría inicial ({hw.get('so', 'OS')} · Salud {score}/100)",
-                solucion="Escaneo automático inicial de CPU, RAM, GPU, discos y red completado.",
-                prefijo_evento="SCAN",
-            )
         except Exception as exc:
             self.hardware_detectado = {
                 "nombre_cpu": "Error en escaneo",
@@ -1192,7 +1183,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                 "alerta_cpu": False,
                 "_error": str(exc),
             }
-        self.after(0, self.pantalla_dashboard)
+        self._post_ui(self.pantalla_dashboard)
 
     def pantalla_registro(self):
         self.limpiar_panel(mostrar_fondo=True)

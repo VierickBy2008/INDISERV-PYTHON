@@ -17,7 +17,7 @@ import customtkinter as ctk
 from PIL import Image, ImageOps
 
 from core.cloud_gateway import CloudGateway
-from core.diagnostico import obtener_dictamen
+from core.diagnostico import EvaluadorTelemetria, obtener_dictamen
 from core.gemelo_digital import abrir_gemelo_digital
 from core.legal import POLITICA_PRIVACIDAD_TEXTO, VERSION_POLITICA
 from core.security import clear_session_token
@@ -200,7 +200,10 @@ class ModalesMixin:
             f.write(f"Falla detectada: {df['descripcion']}\n\n")
             f.write("GUÍA DE SOLUCIÓN:\n")
             f.write(f"{df['solucion']}\n")
-            f.write(f"Código Interno: #{df['codigo']}\n")
+            f.write(f"Código Interno: #{df['codigo']}\n\n")
+            ficha_cpuz = EvaluadorTelemetria.generar_ficha_cpuz_texto(hw)
+            if ficha_cpuz:
+                f.write(ficha_cpuz + "\n")
             f.write("================================================================\n")
 
         nombre_json = os.path.join(carpeta_reportes, f"Reporte_Diagnostico_{ticket_id}.json")

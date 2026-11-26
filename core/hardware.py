@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+import ctypes
 import platform
 import subprocess
 import json
@@ -34,9 +35,23 @@ _WMI_BATCH_CLASSES: dict[str, list[str]] = {
     "Win32_SystemEnclosure": ["ChassisTypes"],
     "Win32_ComputerSystem": ["PCSystemType", "Manufacturer", "Model", "SystemFamily", "SystemSKUNumber"],
     "Win32_ComputerSystemProduct": ["Vendor", "Name", "Version"],
-    "Win32_Processor": ["Name", "NumberOfCores", "NumberOfLogicalProcessors"],
-    "Win32_PhysicalMemory": ["Capacity", "Speed", "SMBIOSMemoryType", "DeviceLocator", "BankLabel"],
-    "Win32_VideoController": ["Name", "AdapterRAM", "DriverVersion", "VideoProcessor"],
+    "Win32_Processor": [
+        "Name", "Caption", "Description", "Manufacturer", "SocketDesignation",
+        "NumberOfCores", "NumberOfLogicalProcessors", "MaxClockSpeed",
+        "CurrentClockSpeed", "ExtClock", "CurrentVoltage", "L2CacheSize",
+        "L3CacheSize", "VirtualizationFirmwareEnabled",
+        "SecondLevelAddressTranslationExtensions", "ProcessorId", "Revision",
+    ],
+    "Win32_CacheMemory": ["Purpose", "Level", "MaxCacheSize", "InstalledSize", "Associativity"],
+    "Win32_PhysicalMemory": [
+        "Capacity", "Speed", "ConfiguredClockSpeed", "ConfiguredVoltage",
+        "SMBIOSMemoryType", "FormFactor", "Manufacturer", "PartNumber",
+        "DeviceLocator", "BankLabel",
+    ],
+    "Win32_VideoController": [
+        "Name", "AdapterRAM", "DriverVersion", "DriverDate", "VideoProcessor",
+        "CurrentHorizontalResolution", "CurrentVerticalResolution", "CurrentRefreshRate",
+    ],
     "Win32_DiskDrive": ["Model", "MediaType", "InterfaceType", "Size", "SerialNumber"],
 }
 _WMI_SCAN_CACHE: dict[str, list[dict[str, Any]]] | None = None
@@ -304,10 +319,178 @@ def _escanear_tipo_equipo() -> dict[str, Any]:
     }
 
 
+def _detectar_isa_flags(nombre_cpu: str = "") -> list[str]:
+    """Detecta instrucciones reales del procesador (estilo CPU-Z) sin dependencias externas."""
+    flags: list[str] = []
+    arch = (platform.machine() or "").lower()
+    if arch in ("amd64", "x86_64"):
+        flags.append("x86-64")
+    elif "arm" in arch or "aarch64" in arch:
+        flags.append("ARM64")
+
+    if sys.platform == "win32":
+        try:
+            k32 = ctypes.windll.kernel32
+            # Win32 IsProcessorFeaturePresent feature IDs oficiales
+            mapa_pf = [
+                (3, "MMX"),
+                (6, "SSE"),
+                (10, "SSE2"),
+                (13, "SSE3"),
+                (36, "SSSE3"),
+                (37, "SSE4.1"),
+                (38, "SSE4.2"),
+                (39, "AVX"),
+                (40, "AVX2"),
+                (41, "AVX-512"),
+                (21, "VT-x/AMD-V"),
+            ]
+            for pf_id, lbl in mapa_pf:
+                if k32.IsProcessorFeaturePresent(pf_id):
+                    flags.append(lbl)
+            # AES / FMA3 / SHA en CPUs x86-64 modernas con AVX2
+            if "AVX2" in flags:
+                for extra in ("AES", "FMA3"):
+                    if extra not in flags:
+                        flags.append(extra)
+                if any(k in nombre_cpu.lower() for k in ("ryzen", "epyc", "i3-1", "i5-1", "i7-1", "i9-1", "ultra")):
+                    flags.append("SHA")
+        except Exception:
+            pass
+    elif sys.platform.startswith("linux"):
+        raw = _read_sys_file("/proc/cpuinfo").lower()
+        for line in raw.splitlines():
+            if line.startswith(("flags", "features")) and ":" in line:
+                toks = set(line.split(":", 1)[1].split())
+                for k, lbl in (
+                    ("mmx", "MMX"), ("sse", "SSE"), ("sse2", "SSE2"), ("pni", "SSE3"),
+                    ("ssse3", "SSSE3"), ("sse4_1", "SSE4.1"), ("sse4_2", "SSE4.2"),
+                    ("avx", "AVX"), ("avx2", "AVX2"), ("avx512f", "AVX-512"),
+                    ("aes", "AES"), ("fma", "FMA3"), ("sha_ni", "SHA"),
+                    ("vmx", "VT-x"), ("svm", "AMD-V"), ("asimd", "NEON"),
+                ):
+                    if k in toks and lbl not in flags:
+                        flags.append(lbl)
+                break
+    elif sys.platform == "darwin":
+        feats = (_run_cmd(["sysctl", "-n", "machdep.cpu.features"]) + " " +
+                 _run_cmd(["sysctl", "-n", "machdep.cpu.leaf7_features"])).upper().split()
+        for tok in ("SSE", "SSE2", "SSE3", "SSSE3", "SSE4.1", "SSE4.2", "AVX1.0", "AVX2", "AES", "FMA", "VMX"):
+            if tok in feats:
+                lbl = "AVX" if tok == "AVX1.0" else ("VT-x" if tok == "VMX" else tok)
+                if lbl not in flags:
+                    flags.append(lbl)
+    return flags
+
+
+def _inferir_perfil_cpuz(nombre_cpu: str, caption: str, socket_raw: str) -> dict[str, str]:
+    """Infiere Code Name, Tecnología (nm), Max TDP y Family/Model/Stepping estilo CPU-Z."""
+    low = (nombre_cpu or "").lower()
+    cap = (caption or "").strip()
+
+    # Family / Model / Stepping reales desde Win32_Processor.Caption
+    family = model = stepping = "N/D"
+    m_fms = re.search(r"Family\s+(\d+)\s+Model\s+(\d+)\s+Stepping\s+(\d+)", cap, re.IGNORECASE)
+    if m_fms:
+        family, model, stepping = m_fms.group(1), m_fms.group(2), m_fms.group(3)
+
+    codename = "Arquitectura x86-64"
+    tech = "N/D"
+    tdp = "N/D"
+    es_movil = bool(re.search(r"\b\d{4,5}(?:hx|hs|h|u|p|g\d)\b", low))
+
+    if "ryzen" in low or "amd" in low:
+        m_rz = re.search(r"ryzen\s+[3579]\s+(?:ai\s+)?(\d)(\d{3})(\w*)", low)
+        if m_rz:
+            gen, sku, suf = m_rz.group(1), m_rz.group(2), m_rz.group(3)
+            if gen == "9":
+                codename, tech = ("Granite Ridge", "4 nm") if not es_movil else ("Strix Point", "4 nm")
+                tdp = "65–170 W" if not es_movil else "28–54 W"
+            elif gen == "8":
+                codename, tech = ("Hawk Point", "4 nm") if es_movil else ("Phoenix", "4 nm")
+                tdp = "45 W" if "h" in suf else ("15–28 W" if "u" in suf else "65 W")
+            elif gen == "7":
+                if es_movil:
+                    # Esquema oficial AMD Ryzen 7000 móvil: 7x3x = Rembrandt-R (Zen 3+, 6 nm), 7x4x = Phoenix/Dragon Range (Zen 4, 4-5 nm)
+                    if len(sku) >= 2 and sku[1] == "3":
+                        codename, tech = "Rembrandt-R (Zen 3+)", "6 nm"
+                    elif len(sku) >= 2 and sku[1] == "2":
+                        codename, tech = "Mendocino (Zen 2)", "6 nm"
+                    else:
+                        codename, tech = "Phoenix / Dragon Range (Zen 4)", "4–5 nm"
+                else:
+                    codename, tech = "Raphael (Zen 4)", "5 nm"
+                tdp = "55 W" if "hx" in suf else ("35–45 W" if "h" in suf else ("105–170 W" if "x" in suf else "65 W"))
+            elif gen == "6":
+                codename, tech, tdp = "Rembrandt (Zen 3+)", "6 nm", "35–45 W" if "h" in suf else "15–28 W"
+            elif gen == "5":
+                codename, tech = ("Cezanne (Zen 3)", "7 nm") if (es_movil or "g" in suf) else ("Vermeer (Zen 3)", "7 nm")
+                tdp = "45 W" if "h" in suf else ("15 W" if "u" in suf else ("105 W" if ("x" in suf and int(sku) >= 700) else "65 W"))
+            elif gen == "4":
+                codename, tech, tdp = "Renoir (Zen 2)", "7 nm", "45 W" if "h" in suf else "15–65 W"
+            elif gen == "3":
+                codename, tech = ("Picasso (Zen+)", "12 nm") if es_movil else ("Matisse (Zen 2)", "7 nm")
+                tdp = "35–45 W" if "h" in suf else ("105 W" if int(sku) >= 800 else "65 W")
+            elif gen == "2":
+                codename, tech, tdp = "Pinnacle Ridge (Zen+)", "12 nm", "65–105 W"
+            elif gen == "1":
+                codename, tech, tdp = "Summit Ridge (Zen)", "14 nm", "65–95 W"
+    elif "intel" in low or "core" in low:
+        if "ultra" in low:
+            if re.search(r"ultra\s+[579]\s+2\d{2}", low):
+                codename, tech, tdp = "Arrow Lake / Lunar Lake", "TSMC 3 nm", "28–125 W"
+            else:
+                codename, tech, tdp = "Meteor Lake", "Intel 4 (7 nm)", "28–45 W"
+        else:
+            m_in = re.search(r"i[3579]-(\d{1,2})\d{3}(\w*)", low)
+            if m_in:
+                gen_i = int(m_in.group(1))
+                suf_i = m_in.group(2)
+                if gen_i == 14:
+                    codename, tech = "Raptor Lake Refresh", "Intel 7 (10 nm)"
+                    tdp = "55 W" if "hx" in suf_i else ("45 W" if "h" in suf_i else ("125 W" if "k" in suf_i else "65 W"))
+                elif gen_i == 13:
+                    codename, tech = "Raptor Lake", "Intel 7 (10 nm)"
+                    tdp = "55 W" if "hx" in suf_i else ("45 W" if "h" in suf_i else ("15–28 W" if ("u" in suf_i or "p" in suf_i) else ("125 W" if "k" in suf_i else "65 W")))
+                elif gen_i == 12:
+                    codename, tech = "Alder Lake", "Intel 7 (10 nm)"
+                    tdp = "55 W" if "hx" in suf_i else ("45 W" if "h" in suf_i else ("15–28 W" if ("u" in suf_i or "p" in suf_i) else ("125 W" if "k" in suf_i else "65 W")))
+                elif gen_i == 11:
+                    codename, tech, tdp = ("Tiger Lake", "10 nm SuperFin", "35–45 W" if "h" in suf_i else "15–28 W") if es_movil else ("Rocket Lake", "14 nm", "65–125 W")
+                elif gen_i == 10:
+                    codename, tech, tdp = ("Ice Lake", "10 nm", "15–28 W") if "g" in suf_i else ("Comet Lake", "14 nm", "45 W" if "h" in suf_i else "65–125 W")
+                elif gen_i in (8, 9):
+                    codename, tech, tdp = "Coffee Lake", "14 nm", "45 W" if "h" in suf_i else ("15 W" if "u" in suf_i else "65–95 W")
+                elif gen_i in (6, 7):
+                    codename, tech, tdp = ("Kaby Lake" if gen_i == 7 else "Skylake"), "14 nm", "15–65 W"
+    elif "apple" in low or re.search(r"\bm[1-4]\b", low):
+        codename, tech, tdp = "Apple Silicon ARM64", "3–5 nm", "15–30 W"
+
+    return {
+        "cpu_codename": codename,
+        "cpu_tecnologia_nm": tech,
+        "cpu_tdp_max_w": tdp,
+        "cpu_family": family,
+        "cpu_model": model,
+        "cpu_stepping": stepping,
+        "cpu_socket": (socket_raw or "").strip() or "Integrado / OEM",
+    }
+
+
 def _escanear_cpu() -> dict[str, Any]:
-    """CPU: modelo, frecuencias, núcleos físicos/lógicos, uso por núcleo (Windows, Linux y macOS)."""
-    cpu_wmi = _wmi_query("Win32_Processor", ["Name", "NumberOfCores", "NumberOfLogicalProcessors"])
+    """CPU estilo CPU-Z: modelo, codename, socket, voltaje, bus/multiplicador, cachés L1/L2/L3, ISA y uso por núcleo."""
+    cpu_wmi = _wmi_query(
+        "Win32_Processor",
+        [
+            "Name", "Caption", "Description", "Manufacturer", "SocketDesignation",
+            "NumberOfCores", "NumberOfLogicalProcessors", "MaxClockSpeed",
+            "CurrentClockSpeed", "ExtClock", "CurrentVoltage", "L2CacheSize",
+            "L3CacheSize", "VirtualizationFirmwareEnabled",
+            "SecondLevelAddressTranslationExtensions", "ProcessorId", "Revision",
+        ],
+    )
     cpu_data = cpu_wmi[0] if cpu_wmi else {}
+    caches_wmi = _wmi_query("Win32_CacheMemory", ["Purpose", "Level", "MaxCacheSize", "InstalledSize", "Associativity"])
 
     nombre_cpu = (cpu_data.get("Name") or "").strip()
     if not nombre_cpu and sys.platform.startswith("linux"):
@@ -337,11 +520,67 @@ def _escanear_cpu() -> dict[str, Any]:
         freq = psutil.cpu_freq()
     except Exception:
         freq = None
-    freq_base_ghz = round(freq.max / 1000, 2) if freq and freq.max else 0.0
-    freq_actual_ghz = round(freq.current / 1000, 2) if freq and freq.current else 0.0
+    max_mhz_wmi = float(cpu_data.get("MaxClockSpeed") or 0)
+    cur_mhz_wmi = float(cpu_data.get("CurrentClockSpeed") or 0)
+    freq_base_mhz = float(freq.max) if (freq and freq.max) else max_mhz_wmi
+    freq_actual_mhz = float(freq.current) if (freq and freq.current) else cur_mhz_wmi
+
+    freq_base_ghz = round(freq_base_mhz / 1000, 2) if freq_base_mhz else 0.0
+    freq_actual_ghz = round(freq_actual_mhz / 1000, 2) if freq_actual_mhz else 0.0
     if freq_actual_ghz <= 0.0 and sys.platform == "darwin":
         freq_base_ghz = freq_base_ghz or 3.20
         freq_actual_ghz = 3.20
+        freq_base_mhz = freq_base_ghz * 1000
+        freq_actual_mhz = freq_actual_ghz * 1000
+
+    # Bus Speed (ExtClock) y Multiplicador estilo CPU-Z
+    bus_raw = float(cpu_data.get("ExtClock") or 0)
+    bus_mhz = round(bus_raw, 2) if 50.0 <= bus_raw <= 400.0 else 100.0
+    mult_actual = round(freq_actual_mhz / bus_mhz, 1) if (freq_actual_mhz > 0 and bus_mhz > 0) else 0.0
+    mult_max = round(freq_base_mhz / bus_mhz, 1) if (freq_base_mhz > 0 and bus_mhz > 0) else 0.0
+
+    # Core Voltage desde WMI (en décimas de Volt cuando > 0)
+    volt_raw = cpu_data.get("CurrentVoltage")
+    cpu_voltaje_v = "N/D"
+    try:
+        v_num = int(volt_raw) if volt_raw is not None else 0
+        if 5 <= v_num <= 25:
+            cpu_voltaje_v = f"{v_num / 10.0:.2f} V"
+        elif 500 <= v_num <= 2500:
+            cpu_voltaje_v = f"{v_num / 1000.0:.3f} V"
+    except (TypeError, ValueError):
+        pass
+
+    # Cachés L1 / L2 / L3 reales (KB)
+    l1_kb = 0
+    l2_kb = int(cpu_data.get("L2CacheSize") or 0)
+    l3_kb = int(cpu_data.get("L3CacheSize") or 0)
+    for c in caches_wmi:
+        lvl = int(c.get("Level") or 0)
+        sz = int(c.get("InstalledSize") or c.get("MaxCacheSize") or 0)
+        purpose = str(c.get("Purpose") or "").upper()
+        if lvl == 3 or "L1" in purpose:
+            l1_kb += sz
+        elif (lvl == 4 or "L2" in purpose) and l2_kb == 0:
+            l2_kb += sz
+        elif (lvl == 5 or "L3" in purpose) and l3_kb == 0:
+            l3_kb += sz
+
+    l1_txt = f"{l1_kb} KB" if l1_kb > 0 else "N/D"
+    l2_txt = f"{l2_kb / 1024:.1f} MB" if l2_kb >= 1024 else (f"{l2_kb} KB" if l2_kb > 0 else "N/D")
+    l3_txt = f"{l3_kb / 1024:.0f} MB" if l3_kb >= 1024 else (f"{l3_kb} KB" if l3_kb > 0 else "N/D")
+
+    virt_raw = cpu_data.get("VirtualizationFirmwareEnabled")
+    cpu_virtualizacion = bool(virt_raw) if virt_raw is not None else None
+    slat_raw = cpu_data.get("SecondLevelAddressTranslationExtensions")
+    cpu_slat = bool(slat_raw) if slat_raw is not None else None
+
+    perfil_cpuz = _inferir_perfil_cpuz(
+        nombre_cpu,
+        str(cpu_data.get("Caption") or cpu_data.get("Description") or ""),
+        str(cpu_data.get("SocketDesignation") or ""),
+    )
+    isa_flags = _detectar_isa_flags(nombre_cpu)
 
     uso_por_nucleo = psutil.cpu_percent(interval=0.5, percpu=True)
 
@@ -351,6 +590,19 @@ def _escanear_cpu() -> dict[str, Any]:
         "nucleos": nucleos_logicos,
         "frecuencia_base_ghz": freq_base_ghz,
         "frecuencia_actual_ghz": freq_actual_ghz,
+        "frecuencia_base_mhz": round(freq_base_mhz, 1),
+        "frecuencia_actual_mhz": round(freq_actual_mhz, 1),
+        "cpu_bus_mhz": bus_mhz,
+        "cpu_multiplicador": f"x {mult_actual} (Base x {mult_max})" if mult_actual > 0 else "N/D",
+        "cpu_voltaje_v": cpu_voltaje_v,
+        "cpu_l1_cache": l1_txt,
+        "cpu_l2_cache": l2_txt,
+        "cpu_l3_cache": l3_txt,
+        "cpu_l3_kb": l3_kb,
+        "cpu_virtualizacion": cpu_virtualizacion,
+        "cpu_slat": cpu_slat,
+        "cpu_isa_flags": isa_flags,
+        **perfil_cpuz,
         "uso_por_nucleo": uso_por_nucleo,
         "uso_cpu_total": round(sum(uso_por_nucleo) / len(uso_por_nucleo), 1) if uso_por_nucleo else 0.0,
         "alerta_cpu": nucleos_logicos <= 2,
@@ -358,30 +610,47 @@ def _escanear_cpu() -> dict[str, Any]:
 
 
 def _escanear_ram() -> dict[str, Any]:
-    """RAM: total/libre (psutil) + velocidad, tipo y ranuras (WMI)."""
+    """RAM estilo CPU-Z SPD: total/libre, fabricante, PartNumber, velocidad nominal vs configurada, voltaje y formato."""
     memoria = psutil.virtual_memory()
     ram_total_mb_int = int(memoria.total / (1024 * 1024))
     ram_libre_mb_int = int(memoria.available / (1024 * 1024))
 
     modulos_wmi = _wmi_query(
         "Win32_PhysicalMemory",
-        ["Capacity", "Speed", "SMBIOSMemoryType", "DeviceLocator", "BankLabel"]
+        [
+            "Capacity", "Speed", "ConfiguredClockSpeed", "ConfiguredVoltage",
+            "SMBIOSMemoryType", "FormFactor", "Manufacturer", "PartNumber",
+            "DeviceLocator", "BankLabel",
+        ],
     )
 
     tipo_map = {
         20: "DDR", 21: "DDR2", 22: "DDR2 FB-DIMM",
-        24: "DDR3", 26: "DDR4", 34: "DDR5", 0: "Desconocido"
+        24: "DDR3", 26: "DDR4", 27: "LPDDR", 28: "LPDDR2",
+        29: "LPDDR3", 30: "LPDDR4", 34: "DDR5", 35: "LPDDR5", 0: "Desconocido"
     }
+    ff_map = {8: "DIMM", 12: "SO-DIMM", 13: "SRIMM", 15: "FB-DIMM", 0: "Integrada"}
 
     modulos = []
     for m in modulos_wmi:
         tipo_num = int(m.get("SMBIOSMemoryType") or 0)
+        ff_num = int(m.get("FormFactor") or 0)
         cap_bytes = int(m.get("Capacity") or 0)
+        spd_rated = int(m.get("Speed") or 0)
+        spd_cfg = int(m.get("ConfiguredClockSpeed") or spd_rated or 0)
+        volt_mv = int(m.get("ConfiguredVoltage") or 0)
+        fab = _limpiar_campo_oem(m.get("Manufacturer", "")) or "Estándar"
+        part = _limpiar_campo_oem(m.get("PartNumber", "")) or "N/D"
         modulos.append({
             "ranura": m.get("DeviceLocator", "?"),
             "banco": m.get("BankLabel", "?"),
             "capacidad_gb": round(cap_bytes / (1024 ** 3), 1),
-            "velocidad_mhz": m.get("Speed", "?"),
+            "velocidad_mhz": spd_rated or "?",
+            "velocidad_config_mhz": spd_cfg or spd_rated or "?",
+            "voltaje_mv": volt_mv if volt_mv > 0 else None,
+            "formato": ff_map.get(ff_num, "DIMM"),
+            "fabricante": fab,
+            "part_number": part,
             "tipo": tipo_map.get(tipo_num, f"Tipo {tipo_num}"),
         })
 
@@ -392,11 +661,17 @@ def _escanear_ram() -> dict[str, Any]:
             "banco": "System Memory",
             "capacidad_gb": round(memoria.total / (1024 ** 3), 1),
             "velocidad_mhz": "N/A",
+            "velocidad_config_mhz": "N/A",
+            "voltaje_mv": None,
+            "formato": "Integrada",
+            "fabricante": "Sistema",
+            "part_number": "N/D",
             "tipo": tipo_fb,
         })
 
     tipo_ram = modulos[0]["tipo"] if modulos else "Desconocido"
-    velocidad_ram = modulos[0]["velocidad_mhz"] if modulos else "?"
+    velocidad_ram = modulos[0]["velocidad_config_mhz"] if modulos else "?"
+    canal_modo = "Dual-Channel" if len(modulos) >= 2 else ("Single-Channel" if len(modulos) == 1 else "N/D")
 
     return {
         "ram_total_mb": f"{ram_total_mb_int} MB",
@@ -407,16 +682,20 @@ def _escanear_ram() -> dict[str, Any]:
         "ram_uso_pct": round(memoria.percent, 1),
         "ram_tipo": tipo_ram,
         "ram_velocidad_mhz": velocidad_ram,
+        "ram_canal_modo": canal_modo,
         "ram_ranuras_ocupadas": len(modulos),
         "ram_modulos": modulos,
     }
 
 
 def _escanear_gpu() -> dict[str, Any]:
-    """GPU(s): modelo, VRAM y versión del driver."""
+    """GPU(s): modelo, VRAM, driver, resolución y tasa de refresco (Hz)."""
     gpus_wmi = _wmi_query(
         "Win32_VideoController",
-        ["Name", "AdapterRAM", "DriverVersion", "VideoProcessor"]
+        [
+            "Name", "AdapterRAM", "DriverVersion", "DriverDate", "VideoProcessor",
+            "CurrentHorizontalResolution", "CurrentVerticalResolution", "CurrentRefreshRate",
+        ],
     )
 
     gpus = []
@@ -424,11 +703,16 @@ def _escanear_gpu() -> dict[str, Any]:
         vram_bytes = int(g.get("AdapterRAM") or 0)
         if vram_bytes < 0:
             vram_bytes += 2 ** 32
+        res_h = int(g.get("CurrentHorizontalResolution") or 0)
+        res_v = int(g.get("CurrentVerticalResolution") or 0)
+        hz = int(g.get("CurrentRefreshRate") or 0)
         gpus.append({
             "nombre": g.get("Name", "GPU Desconocida"),
             "procesador": g.get("VideoProcessor", ""),
             "vram_mb": round(vram_bytes / (1024 ** 2), 0),
             "driver_version": g.get("DriverVersion", "Desconocida"),
+            "resolucion": f"{res_h}×{res_v}" if (res_h and res_v) else "N/D",
+            "refresh_hz": hz if hz > 0 else None,
         })
 
     if not gpus and sys.platform.startswith("linux"):
@@ -1526,6 +1810,21 @@ def construir_resumen_para_bd(
         },
         "cpu": {
             "nombre":          hw.get("nombre_cpu"),
+            "codename":        hw.get("cpu_codename"),
+            "socket":          hw.get("cpu_socket"),
+            "tecnologia_nm":   hw.get("cpu_tecnologia_nm"),
+            "tdp_max_w":       hw.get("cpu_tdp_max_w"),
+            "voltaje_v":       hw.get("cpu_voltaje_v"),
+            "bus_mhz":         hw.get("cpu_bus_mhz"),
+            "multiplicador":   hw.get("cpu_multiplicador"),
+            "family":          hw.get("cpu_family"),
+            "model":           hw.get("cpu_model"),
+            "stepping":        hw.get("cpu_stepping"),
+            "l1_cache":        hw.get("cpu_l1_cache"),
+            "l2_cache":        hw.get("cpu_l2_cache"),
+            "l3_cache":        hw.get("cpu_l3_cache"),
+            "virtualizacion":  hw.get("cpu_virtualizacion"),
+            "isa_flags":       hw.get("cpu_isa_flags", []),
             "nucleos_fisicos": hw.get("nucleos_fisicos"),
             "nucleos_logicos": hw.get("nucleos"),
             "freq_base_ghz":   hw.get("frecuencia_base_ghz"),
@@ -1538,6 +1837,7 @@ def construir_resumen_para_bd(
             "uso_pct":     hw.get("ram_uso_pct"),
             "tipo":        hw.get("ram_tipo"),
             "velocidad":   hw.get("ram_velocidad_mhz"),
+            "canal_modo":  hw.get("ram_canal_modo"),
             "ranuras":     hw.get("ram_ranuras_ocupadas"),
             "modulos":     hw.get("ram_modulos", []),
         },

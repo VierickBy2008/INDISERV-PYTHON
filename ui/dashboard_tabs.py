@@ -82,6 +82,8 @@ class DashboardMixin:
 
         der = ctk.CTkFrame(topbar, fg_color="transparent")
         der.pack(side="right", padx=10, pady=9)
+        boton(der, "💾 Guardar Ticket", self._guardar_escaneo_manual,
+              variante="primario", width=122, height=32, font=F_SMALL).pack(side="left", padx=(0, 5))
         boton(der, "👤 Mi Cuenta", self.modal_mi_cuenta,
               variante="util", width=102, height=32, font=F_SMALL,
               hover_border_color=P["primario"]).pack(side="left", padx=(0, 5))
@@ -219,24 +221,33 @@ class DashboardMixin:
             iniciales = nick[:2].upper()
             lbl.configure(image=None, text=iniciales, fg_color=P["card_alt"], text_color=P["cian"])
 
+    def _guardar_escaneo_manual(self):
+        """Guarda manualmente un ticket del perfil actual CPU-Z en Supabase solo si el usuario lo pide."""
+        hw = self.hardware_detectado or {}
+        if not self.dni_usuario_activo:
+            toast(self, "Inicie sesión con su cuenta para guardar tickets en la nube.", tipo="warn")
+            return
+        score = calcular_health_score(hw)
+        ficha = EvaluadorTelemetria.generar_ficha_cpuz_texto(hw)
+        t_id = self._registrar_evento_nube(
+            tipo_evento="Escaneo CPU-Z Manual",
+            categoria="Perfil Técnico CPU-Z",
+            subcategoria=f"{hw.get('nombre_cpu', 'CPU')} · {hw.get('so', 'OS')} · Salud {score}/100",
+            solucion=ficha or "Escaneo técnico guardado bajo demanda por el operador.",
+            prefijo_evento="SCAN",
+        )
+        if t_id:
+            toast(self, f"Ticket guardado en tu historial privado: {t_id}", tipo="ok")
+
     def _reescanear_rapido(self):
-        toast(self, "Actualizando telemetría del equipo en segundo plano…", tipo="info", duracion_ms=1800)
+        toast(self, "Actualizando telemetría CPU-Z del equipo en segundo plano…", tipo="info", duracion_ms=1800)
 
         def _bg():
             try:
                 self.hardware_detectado = LectorHardware.escanear_entorno()
-                hw = self.hardware_detectado or {}
-                score = calcular_health_score(hw)
-                self._registrar_evento_nube(
-                    tipo_evento="Re-escaneo Hardware",
-                    categoria="Re-escaneo de Telemetría",
-                    subcategoria=f"Actualización manual ({hw.get('so', 'OS')} · Salud {score}/100)",
-                    solucion="Re-escaneo de sensores y estado de hardware registrado en el historial.",
-                    prefijo_evento="SCAN",
-                )
             except Exception:
                 pass
-            self.after(0, self.pantalla_dashboard)
+            self._post_ui(self.pantalla_dashboard)
 
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -434,20 +445,33 @@ class DashboardMixin:
             font=F_H3, text_color=P["texto"], anchor="w", wraplength=410
         ).pack(fill="x", padx=12, pady=(0, 4))
 
+        # Panel compacto estilo CPU-Z (Codename, Socket, Tech/TDP, Voltaje, Relojes/Bus, F/M/S, Cachés e ISA)
+        cpuz_box = ctk.CTkFrame(c_cpu, fg_color=P["surface"], corner_radius=8, border_width=1, border_color=P["borde"])
+        cpuz_box.pack(fill="x", padx=12, pady=(0, 6))
+        virt_lbl = "VT-x/AMD-V Activa" if hw.get("cpu_virtualizacion") is True else (
+            "VT-x/AMD-V Inactiva" if hw.get("cpu_virtualizacion") is False else "Virt: N/D"
+        )
+        isa_str = ", ".join(hw.get("cpu_isa_flags") or []) or "N/D"
         ctk.CTkLabel(
-            c_cpu,
-            text=f"Frecuencia base: {hw.get('frecuencia_base_ghz', '?')} GHz   ·   "
-                 f"Frecuencia actual: {hw.get('frecuencia_actual_ghz', '?')} GHz",
-            font=F_SMALL, text_color=P["texto_sec"], anchor="w"
-        ).pack(fill="x", padx=12, pady=(0, 6))
+            cpuz_box,
+            text=(
+                f"Code Name: {hw.get('cpu_codename', 'N/D')}   ·   Socket: {hw.get('cpu_socket', 'N/D')}\n"
+                f"Tech: {hw.get('cpu_tecnologia_nm', 'N/D')}   ·   TDP: {hw.get('cpu_tdp_max_w', 'N/D')}   ·   Vcore: {hw.get('cpu_voltaje_v', 'N/D')}\n"
+                f"Clock: {hw.get('frecuencia_actual_mhz', '?')} MHz ({hw.get('cpu_multiplicador', 'N/D')}) · Bus {hw.get('cpu_bus_mhz', 100)} MHz\n"
+                f"Family {hw.get('cpu_family', '?')} / Model {hw.get('cpu_model', '?')} / Step {hw.get('cpu_stepping', '?')}   ·   {virt_lbl}\n"
+                f"Cachés: L1 {hw.get('cpu_l1_cache', 'N/D')}  |  L2 {hw.get('cpu_l2_cache', 'N/D')}  |  L3 {hw.get('cpu_l3_cache', 'N/D')}\n"
+                f"ISA: {isa_str}"
+            ),
+            font=F_CAPTION, text_color=P["texto_sec"], anchor="w", justify="left", wraplength=410
+        ).pack(fill="x", padx=10, pady=6)
 
         BarraMetrica(
             c_cpu, "Carga Global de CPU", uso_cpu, f"{uso_cpu:.1f}%", warn=70, err=90
-        ).pack(fill="x", padx=12, pady=(0, 8))
+        ).pack(fill="x", padx=12, pady=(0, 6))
 
         overline(c_cpu, "Distribución por Hilo Lógico").pack(anchor="w", padx=12)
         scroll_cores = ctk.CTkScrollableFrame(
-            c_cpu, fg_color=P["surface"], corner_radius=8, height=210
+            c_cpu, fg_color=P["surface"], corner_radius=8, height=150
         )
         scroll_cores.pack(fill="both", expand=True, padx=12, pady=(4, 10))
         scroll_cores.grid_columnconfigure(0, weight=1)
@@ -547,15 +571,20 @@ class DashboardMixin:
             f1 = ctk.CTkFrame(item, fg_color="transparent")
             f1.pack(fill="x", padx=10, pady=(6, 2))
             ctk.CTkLabel(
-                f1, text=f"Slot #{i} · {m.get('ranura', 'DIMM')}",
+                f1, text=f"Slot #{i} · {m.get('ranura', 'DIMM')} ({m.get('formato', 'DIMM')})",
                 font=F_H3, text_color=P["texto"]
             ).pack(side="left")
             Badge(f1, f"{m.get('capacidad_gb', '?')} GB", tipo="info").pack(side="right")
+            v_mv = f" · {m['voltaje_mv'] / 1000:.2f} V" if m.get("voltaje_mv") else ""
+            cfg_spd = m.get("velocidad_config_mhz", m.get("velocidad_mhz", "?"))
             ctk.CTkLabel(
                 item,
-                text=f"Tipo: {m.get('tipo', '?')}   ·   Frecuencia: {m.get('velocidad_mhz', '?')} MHz   ·   "
-                     f"Banco: {m.get('banco', 'N/A')}",
-                font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
+                text=(
+                    f"{m.get('fabricante', 'OEM')} · {m.get('tipo', '?')} @ {cfg_spd} MHz "
+                    f"(Nominal: {m.get('velocidad_mhz', '?')} MHz{v_mv})\n"
+                    f"Part Number: {m.get('part_number', 'N/D')} · Banco: {m.get('banco', 'N/A')}"
+                ),
+                font=F_CAPTION, text_color=P["texto_sec"], anchor="w", justify="left"
             ).pack(fill="x", padx=10, pady=(0, 6))
 
     def _tab_graficos(self, tab, hw: dict):
@@ -594,6 +623,9 @@ class DashboardMixin:
                 c, "Versión de Driver", g.get("driver_version", "N/A"),
                 ("WDDM Activo", "ok")
             )
+            if g.get("resolucion") and g.get("resolucion") != "N/D":
+                hz_txt = f" @ {g['refresh_hz']} Hz" if g.get("refresh_hz") else ""
+                self._fila_dato(c, "Salida de Pantalla", f"{g['resolucion']}{hz_txt}")
             BarraMetrica(
                 c, "Capacidad de VRAM (referencia 16 GB)",
                 min(100.0, (vram / 16384.0) * 100.0 if vram > 0 else 25.0),

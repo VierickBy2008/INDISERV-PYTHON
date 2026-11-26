@@ -9,6 +9,7 @@ import psutil
 
 from core.security import generate_secure_ticket_id
 from core.diagnostico import (
+    EvaluadorTelemetria,
     MotorDiagnostico,
     MicroStressTest,
     RAMAS_ARBOL,
@@ -28,6 +29,7 @@ from core.ui_theme import (
     overline,
     estilo_segmentado,
     estilo_textbox,
+    toast,
     animar_entrada_panel,
 )
 
@@ -172,22 +174,28 @@ class StressYArbolMixin:
 
         self._btn_stress = boton(
             btn_row, "▶  Iniciar Test",
-            self._iniciar_stress, variante="violeta", width=190, height=38
+            self._iniciar_stress, variante="violeta", width=165, height=38
         )
-        self._btn_stress.pack(side="left", padx=6)
+        self._btn_stress.pack(side="left", padx=5)
 
         self._btn_cancelar_stress = boton(
-            btn_row, "⏹  Cancelar Test",
-            self._cancelar_stress, variante="peligro", width=170, height=38, state="disabled"
+            btn_row, "⏹  Cancelar",
+            self._cancelar_stress, variante="peligro", width=125, height=38, state="disabled"
         )
-        self._btn_cancelar_stress.pack(side="left", padx=6)
+        self._btn_cancelar_stress.pack(side="left", padx=5)
+
+        self._btn_guardar_stress = boton(
+            btn_row, "💾 Guardar en Nube",
+            self._guardar_resultado_stress_nube, variante="primario", width=175, height=38, state="disabled"
+        )
+        self._btn_guardar_stress.pack(side="left", padx=5)
 
         self._btn_accion_termica = boton(
-            btn_row, "🩺 Diagnosticar Enfriamiento CPU",
+            btn_row, "🩺 Diagnosticar Enfriamiento",
             lambda: self.ejecutar_diagnostico_directo(302),
-            variante="neutro", width=230, height=38
+            variante="neutro", width=215, height=38
         )
-        self._btn_accion_termica.pack(side="left", padx=6)
+        self._btn_accion_termica.pack(side="left", padx=5)
 
     def _obtener_duracion_stress(self) -> float:
         if hasattr(self, "_seg_duracion"):
@@ -205,6 +213,8 @@ class StressYArbolMixin:
         dur = self._obtener_duracion_stress()
 
         self._btn_stress.configure(state="disabled", text="⏳ Ejecutando…")
+        if hasattr(self, "_btn_guardar_stress") and self._btn_guardar_stress.winfo_exists():
+            self._btn_guardar_stress.configure(state="disabled", text="💾 Guardar en Nube")
         if hasattr(self, "_btn_cancelar_stress"):
             self._btn_cancelar_stress.configure(state="normal")
         if hasattr(self, "_pulso_stress"):
@@ -330,23 +340,40 @@ class StressYArbolMixin:
                 self._barra_stress.set(100.0, f"{dur:.1f} s / {dur:.1f} s (100%)", animar=True)
 
             if not resultado.get("cancelado"):
-                estado_txt = "THROTTLING DETECTADO" if resultado.get("throttling") else "ESTABLE"
-                t_stress = self._registrar_evento_nube(
-                    tipo_evento="Micro-Stress CPU",
-                    categoria=f"Micro-Stress CPU ({estado_txt})",
-                    subcategoria=(
-                        f"{resultado.get('rendimiento_avg_mops', 0)} Mops/s · "
-                        f"Freq prom. {resultado.get('freq_avg_ghz', 0)} GHz · "
-                        f"Uso máx. {resultado.get('uso_max_pct', 0)}%"
-                    ),
-                    solucion=str(resultado.get("diagnostico", "Benchmark completado.")),
-                    prefijo_evento="STRESS",
+                self._stress_append_main(
+                    "\nℹ Resultado listo en memoria. Pulse '💾 Guardar en Nube' si desea registrar este ticket.\n"
                 )
-                if t_stress:
-                    self._stress_append_main(f"\n✔ Reporte guardado en tu historial privado: {t_stress}\n")
+                if hasattr(self, "_btn_guardar_stress") and self._btn_guardar_stress.winfo_exists():
+                    self._btn_guardar_stress.configure(state="normal", text="💾 Guardar en Nube")
 
         if hasattr(self, "_btn_stress") and self._btn_stress.winfo_exists():
             self._btn_stress.configure(state="normal", text="▶  Reiniciar Test")
+
+    def _guardar_resultado_stress_nube(self):
+        resultado = self._ultimo_resultado_stress
+        if not resultado or resultado.get("cancelado") or "error" in resultado:
+            return
+        if not self.dni_usuario_activo:
+            toast(self, "Inicie sesión para guardar resultados en la nube.", tipo="warn")
+            return
+        estado_txt = "THROTTLING DETECTADO" if resultado.get("throttling") else "ESTABLE"
+        ficha = EvaluadorTelemetria.generar_ficha_cpuz_texto(self.hardware_detectado)
+        t_stress = self._registrar_evento_nube(
+            tipo_evento="Micro-Stress CPU",
+            categoria=f"Micro-Stress CPU ({estado_txt})",
+            subcategoria=(
+                f"{resultado.get('rendimiento_avg_mops', 0)} Mops/s · "
+                f"Freq prom. {resultado.get('freq_avg_ghz', 0)} GHz · "
+                f"Uso máx. {resultado.get('uso_max_pct', 0)}%"
+            ),
+            solucion=f"{resultado.get('diagnostico', 'Benchmark completado.')}\n\n{ficha}",
+            prefijo_evento="STRESS",
+        )
+        if t_stress:
+            self._stress_append_main(f"\n✔ Ticket guardado en tu historial privado: {t_stress}\n")
+            if hasattr(self, "_btn_guardar_stress") and self._btn_guardar_stress.winfo_exists():
+                self._btn_guardar_stress.configure(state="disabled", text=f"✔ Guardado ({t_stress[-4:]})")
+            toast(self, f"Resultado guardado en la nube: {t_stress}", tipo="ok")
 
     def iniciar_diagnostico(self):
         self.arbol_fase = 0
@@ -445,23 +472,30 @@ class StressYArbolMixin:
             Badge(f_badges, "✔ DIAGNÓSTICO COMPLETADO", tipo="ok").pack(side="left")
             Badge(f_badges, f"Categoría: {df['categoria']}", tipo="err").pack(side="left", padx=8)
             Badge(f_badges, f"Subcategoría: {df['subcategoria']}", tipo="info").pack(side="left")
-            Badge(f_badges, f"Ticket: {ticket} · Código #{df['codigo']}", tipo="neutro").pack(side="right")
+            Badge(
+                f_badges,
+                f"✔ Guardado: {ticket}" if self.ticket_sincronizado else f"Sin guardar en nube · #{df['codigo']}",
+                tipo="ok" if self.ticket_sincronizado else "warn",
+            ).pack(side="right")
 
             ctk.CTkLabel(
                 banner, text=df["descripcion"], font=F_H2,
                 text_color=P["texto"], anchor="w", justify="left", wraplength=830
             ).pack(fill="x", padx=14, pady=(2, 10))
 
-            overline(cuerpo, "Guía de Solución Técnica Paso a Paso", color=P["cian"]).pack(
+            overline(cuerpo, "Guía de Solución Técnica y Perfil CPU-Z Verificado", color=P["cian"]).pack(
                 anchor="w", padx=18, pady=(4, 2)
             )
 
+            ficha_cpuz = EvaluadorTelemetria.generar_ficha_cpuz_texto(self.hardware_detectado)
             resultado_txt = (
                 f"Categoría: {df['categoria']}   |   Subcategoría: {df['subcategoria']}\n"
                 f"Descripción: {df['descripcion']}\n"
                 f"────────────────────────────────────────────────────────────────────\n"
                 f"GUÍA DE SOLUCIÓN PASO A PASO:\n{df['solucion']}\n\n"
-                f"Ticket Generado: {ticket}   |   Código Interno de Soporte: #{df['codigo']}"
+                f"{ficha_cpuz}\n\n"
+                f"Ticket Preparado: {ticket}   |   Código Interno: #{df['codigo']} "
+                f"(pulse '💾 Guardar Ticket y Reporte' para subirlo a la nube)"
             )
             res_box = ctk.CTkTextbox(cuerpo, width=850, height=235, **estilo_textbox())
             res_box.pack(padx=16, pady=6, fill="both", expand=True)
@@ -482,7 +516,7 @@ class StressYArbolMixin:
             ).pack(side="left", padx=6)
 
             boton(
-                btn_frame, "💾 Guardar Reporte y Finalizar",
+                btn_frame, "💾 Guardar Ticket y Reporte",
                 self.guardar_reporte_final, variante="primario", width=240, height=40
             ).pack(side="left", padx=6)
 
@@ -658,15 +692,7 @@ class StressYArbolMixin:
         self.dictamen_final = dictamen
         self.arbol_fase = 2
         self.ticket_id_actual = generate_secure_ticket_id(self.dni_usuario_activo, "TICKET")
-        self.ticket_sincronizado = True
-        self._registrar_evento_nube(
-            tipo_evento="Árbol Diagnóstico",
-            categoria=str(dictamen.get("categoria", "Diagnóstico")),
-            subcategoria=str(dictamen.get("subcategoria", "Dictamen")),
-            solucion=str(dictamen.get("solucion", "")),
-            codigo=dictamen.get("codigo", 0),
-            ticket_id_fijo=self.ticket_id_actual,
-        )
+        self.ticket_sincronizado = False
         self.pantalla_diagnostico()
 
     def _abrir_mapa_desde_vista(self, categoria_afectada: str, vista_retorno):

@@ -379,7 +379,7 @@ def _num(valor, defecto: float = 0.0) -> float:
 
 
 class EvaluadorTelemetria:
-    """Convierte el dict de LectorHardware en evidencias asociadas a códigos."""
+    """Convierte la telemetría profunda estilo CPU-Z en evidencias específicas asociadas a códigos."""
 
     @staticmethod
     def evaluar(hw: dict | None) -> list[dict]:
@@ -387,22 +387,118 @@ class EvaluadorTelemetria:
             return []
         ev: list[dict] = []
 
+        cpu_nom = str(hw.get("nombre_cpu") or "CPU").strip()
+        socket = str(hw.get("cpu_socket") or "").strip()
+        tdp = str(hw.get("cpu_tdp_max_w") or "").strip()
+        volt = str(hw.get("cpu_voltaje_v") or "").strip()
+
         uso_cpu = _num(hw.get("uso_cpu_total"))
         if uso_cpu >= 40:
-            ev.append({"codigos": [601], "nivel": "warn",
-                       "texto": f"Uso de CPU en reposo elevado ({uso_cpu:.0f}%)."})
+            ev.append({
+                "codigos": [601],
+                "nivel": "warn",
+                "texto": f"Uso de CPU en reposo elevado ({uso_cpu:.0f}%) en {cpu_nom} ({hw.get('nucleos_fisicos', '?')}C/{hw.get('nucleos', '?')}T).",
+            })
+
+        base, actual = _num(hw.get("frecuencia_base_ghz")), _num(hw.get("frecuencia_actual_ghz"))
+        if base > 0 and 0 < actual < base * 0.55:
+            extra_cpuz = " · ".join(x for x in (socket, f"Vcore {volt}" if volt and volt != "N/D" else "", f"TDP {tdp}" if tdp and tdp != "N/D" else "") if x)
+            ev.append({
+                "codigos": [302, 301],
+                "nivel": "warn",
+                "texto": f"Posible throttling/recorte de reloj en {cpu_nom}: {actual:.2f} / {base:.2f} GHz"
+                         + (f" ({extra_cpuz})" if extra_cpuz else "") + ".",
+            })
+
+        # RAM: saturación, Single-Channel y velocidad SPD por debajo de la nominal (XMP/EXPO)
+        ram = _num(hw.get("ram_uso_pct"))
+        if ram >= 85 or hw.get("alerta_ram"):
+            ev.append({
+                "codigos": [702, 701, 601],
+                "nivel": "warn",
+                "texto": f"Memoria RAM al límite ({ram:.0f}% en uso · {hw.get('ram_disponible_mb', '?')} libres de {hw.get('ram_total_mb', '?')}).",
+            })
+
+        modulos = hw.get("ram_modulos", []) or []
+        if len(modulos) == 1 and int(hw.get("ram_total_mb_int") or 0) >= 4096:
+            m0 = modulos[0]
+            ev.append({
+                "codigos": [701],
+                "nivel": "info",
+                "texto": f"RAM en Single-Channel (1× {m0.get('capacidad_gb', '?')} GB {m0.get('tipo', 'DDR')} @ {m0.get('velocidad_config_mhz', m0.get('velocidad_mhz', '?'))} MHz · {m0.get('fabricante', 'OEM')}): añadir un 2.º módulo habilita Dual-Channel (+15–25% ancho de banda).",
+            })
+
+        for m in modulos:
+            try:
+                rated = int(m.get("velocidad_mhz") or 0)
+                cfg = int(m.get("velocidad_config_mhz") or 0)
+            except (TypeError, ValueError):
+                rated = cfg = 0
+            if rated >= 2666 and 0 < cfg < rated - 200:
+                ev.append({
+                    "codigos": [701],
+                    "nivel": "warn",
+                    "texto": f"RAM {m.get('part_number', m.get('ranura', 'DIMM'))} operando a {cfg} MHz de {rated} MHz nominales: active XMP/EXPO en BIOS {hw.get('bios_version', '')}.",
+                })
+                break
+
+        # Virtualización por hardware en BIOS
+        if hw.get("cpu_virtualizacion") is False:
+            ev.append({
+                "codigos": [603],
+                "nivel": "info",
+                "texto": f"Virtualización por hardware (VT-x/AMD-V) desactivada en BIOS {hw.get('mb_fabricante', '')} v{hw.get('bios_version', '?')}: limita WSL2, Docker y emuladores.",
+            })
+
+        # Almacenamiento: saturación o disco mecánico HDD
+        discos = hw.get("discos_fisicos", []) or []
+        modelo_d0 = str(discos[0].get("modelo", "Disco")) if discos else "Disco"
+        if discos and all(str(d.get("tipo", "")).upper() == "HDD" for d in discos):
+            ev.append({
+                "codigos": [602, 603],
+                "nivel": "warn",
+                "texto": f"Sistema operando únicamente en disco mecánico HDD ({modelo_d0}): principal causa de arranques lentos y disco al 100%.",
+            })
 
         for p in hw.get("particiones", []) or []:
             uso = _num(p.get("uso_pct"))
             if uso >= 90:
-                ev.append({"codigos": [602, 502], "nivel": "warn",
-                           "texto": f"Partición {p.get('letra', '?')} saturada ({uso:.0f}%)."})
+                ev.append({
+                    "codigos": [602, 502],
+                    "nivel": "warn",
+                    "texto": f"Partición {p.get('letra', '?')} saturada ({uso:.0f}% · solo {p.get('libre_gb', '?')} GB libres en {modelo_d0}).",
+                })
 
-        ram = _num(hw.get("ram_uso_pct"))
-        if ram >= 85 or hw.get("alerta_ram"):
-            ev.append({"codigos": [702, 701, 601], "nivel": "warn",
-                       "texto": f"Memoria RAM al límite ({ram:.0f}% en uso)."})
+        # GPU y pantalla (Hz)
+        gpus = hw.get("gpus", []) or []
+        if str(hw.get("gpu_principal", "")).strip() in ("", "No detectada"):
+            ev.append({"codigos": [202, 204], "nivel": "warn",
+                       "texto": "No se detectó GPU dedicada/integrada."})
+        else:
+            for g in gpus:
+                g_nom = str(g.get("nombre", "")).lower()
+                hz = g.get("refresh_hz")
+                if hz == 60 and any(k in g_nom for k in ("rtx ", "rx 6", "rx 7", "rx 8", "rx 9")):
+                    ev.append({
+                        "codigos": [204],
+                        "nivel": "info",
+                        "texto": f"GPU {g.get('nombre')} con salida configurada a 60 Hz ({g.get('resolucion', 'N/D')}): verifique en Pantalla Avanzada si su monitor soporta 120/144+ Hz.",
+                    })
+                    break
 
+        # BIOS antigua (> 4 años)
+        bios_fec = str(hw.get("bios_fecha", "")).strip()
+        m_anio = re.search(r"(\d{4})$", bios_fec)
+        if m_anio:
+            anio_bios = int(m_anio.group(1))
+            if 2005 <= anio_bios <= 2021:
+                ev.append({
+                    "codigos": [303, 701],
+                    "nivel": "info",
+                    "texto": f"Firmware BIOS v{hw.get('bios_version', '?')} ({bios_fec}) de {hw.get('mb_fabricante', '')} {hw.get('mb_modelo', '')} tiene más de 4 años: revisar actualizaciones AGESA/microcódigo.",
+                })
+
+        # Red
         adaptador = str(hw.get("adaptador_activo", "")).strip()
         latencia = str(hw.get("latencia_ms", "N/A"))
         if adaptador in ("", "Ninguno"):
@@ -413,16 +509,7 @@ class EvaluadorTelemetria:
                        "texto": "La prueba de latencia/DNS no obtuvo respuesta."})
         elif _num(latencia) >= 150:
             ev.append({"codigos": [802], "nivel": "warn",
-                       "texto": f"Latencia de red alta ({latencia})."})
-
-        if str(hw.get("gpu_principal", "")).strip() in ("", "No detectada"):
-            ev.append({"codigos": [202, 204], "nivel": "warn",
-                       "texto": "No se detectó GPU dedicada/integrada."})
-
-        base, actual = _num(hw.get("frecuencia_base_ghz")), _num(hw.get("frecuencia_actual_ghz"))
-        if base > 0 and 0 < actual < base * 0.5:
-            ev.append({"codigos": [302, 301], "nivel": "warn",
-                       "texto": f"Frecuencia actual muy por debajo de la base ({actual} / {base} GHz)."})
+                       "texto": f"Latencia de red alta ({latencia}) en {adaptador}."})
 
         lic = hw.get("licencia_windows")
         if isinstance(lic, dict) and lic.get("sospecha_kms"):
@@ -434,6 +521,47 @@ class EvaluadorTelemetria:
                 "texto": f"Licencia Windows KMS no oficial detectada{dias_txt}{srv_txt} (observación de software, no afecta salud de hardware).",
             })
         return ev
+
+    @staticmethod
+    def generar_ficha_cpuz_texto(hw: dict | None) -> str:
+        """Genera un bloque técnico conciso estilo CPU-Z para enriquecer cada dictamen."""
+        if not hw:
+            return ""
+        isa = ", ".join(hw.get("cpu_isa_flags") or []) or "N/D"
+        virt_s = "Activa (BIOS)" if hw.get("cpu_virtualizacion") is True else (
+            "Desactivada (BIOS)" if hw.get("cpu_virtualizacion") is False else "N/D"
+        )
+        modulos = hw.get("ram_modulos") or []
+        spd_resumen = " / ".join(
+            f"{m.get('capacidad_gb', '?')}GB {m.get('tipo', '')} {m.get('fabricante', '')} ({m.get('velocidad_config_mhz', m.get('velocidad_mhz', '?'))} MHz)"
+            for m in modulos[:4]
+        ) or f"{hw.get('ram_total_mb', '?')} {hw.get('ram_tipo', '')}"
+
+        gpus = hw.get("gpus") or []
+        gpu_det = (
+            f"{gpus[0].get('nombre', '?')} (Driver {gpus[0].get('driver_version', '?')}"
+            + (f" · {gpus[0].get('resolucion')} @ {gpus[0].get('refresh_hz')}Hz" if gpus[0].get("refresh_hz") else "")
+            + ")"
+            if gpus else str(hw.get("gpu_principal", "N/D"))
+        )
+
+        evidencias = EvaluadorTelemetria.evaluar(hw)
+        hallazgos = "\n".join(f"  • [{e['nivel'].upper()}] {e['texto']}" for e in evidencias) if evidencias else "  • Sin anomalías de telemetría detectadas en este equipo."
+
+        return (
+            "════════════════════════════════════════════════════════════════════\n"
+            "PERFIL TÉCNICO CPU-Z VERIFICADO EN ESTE EQUIPO:\n"
+            f"  CPU / Codename  : {hw.get('nombre_cpu', '?')}  [{hw.get('cpu_codename', 'N/D')}]\n"
+            f"  Socket / Proceso: {hw.get('cpu_socket', 'N/D')}  ·  Tech: {hw.get('cpu_tecnologia_nm', 'N/D')}  ·  Max TDP: {hw.get('cpu_tdp_max_w', 'N/D')}\n"
+            f"  Relojes / Vcore : {hw.get('frecuencia_actual_mhz', '?')} MHz ({hw.get('cpu_multiplicador', 'N/D')})  ·  Bus {hw.get('cpu_bus_mhz', 100)} MHz  ·  Vcore {hw.get('cpu_voltaje_v', 'N/D')}\n"
+            f"  F/M/S & Cachés  : Family {hw.get('cpu_family', '?')} / Model {hw.get('cpu_model', '?')} / Step {hw.get('cpu_stepping', '?')}  ·  L1 {hw.get('cpu_l1_cache', 'N/D')} | L2 {hw.get('cpu_l2_cache', 'N/D')} | L3 {hw.get('cpu_l3_cache', 'N/D')}\n"
+            f"  Instrucciones   : {isa}\n"
+            f"  Virtualización  : {virt_s}  ·  Placa/BIOS: {hw.get('mb_fabricante', '?')} {hw.get('mb_modelo', '?')} (v{hw.get('bios_version', '?')} · {hw.get('bios_fecha', '?')})\n"
+            f"  Memoria SPD     : {hw.get('ram_total_mb', '?')} [{hw.get('ram_canal_modo', 'N/D')}] — {spd_resumen}\n"
+            f"  Gráficos        : {gpu_det}\n"
+            "HALLAZGOS ESPECÍFICOS DETECTADOS EN TU HARDWARE:\n"
+            f"{hallazgos}"
+        )
 
     @staticmethod
     def codigos_respaldados(evidencias: list[dict]) -> set[int]:
