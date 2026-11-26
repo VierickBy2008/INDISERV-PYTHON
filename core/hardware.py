@@ -58,6 +58,16 @@ _WMI_SCAN_CACHE: dict[str, list[dict[str, Any]]] | None = None
 _WMI_CACHE_LOCK = threading.Lock()
 
 
+def _resolver_powershell_abs() -> str:
+    """Devuelve la ruta absoluta de Windows PowerShell en System32 para evitar PATH hijacking."""
+    sys_root = os.environ.get("SystemRoot") or r"C:\Windows"
+    candidato = os.path.join(sys_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    return candidato if os.path.isfile(candidato) else "powershell"
+
+
+_POWERSHELL_EXE = _resolver_powershell_abs()
+
+
 def _wmi_batch_prefetch() -> dict[str, list[dict[str, Any]]]:
     """Consulta todas las clases CIM de Windows en un único proceso PowerShell."""
     if sys.platform != "win32":
@@ -70,7 +80,7 @@ def _wmi_batch_prefetch() -> dict[str, list[dict[str, Any]]]:
     try:
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         res = subprocess.run(
-            ["powershell", "-NonInteractive", "-NoProfile", "-Command", script],
+            [_POWERSHELL_EXE, "-NonInteractive", "-NoProfile", "-Command", script],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -145,7 +155,7 @@ def _wmi_query(clase_wmi: str, propiedades: list[str]) -> list[dict[str, Any]]:
     try:
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         result = subprocess.run(
-            ["powershell", "-NonInteractive", "-NoProfile", "-Command", script],
+            [_POWERSHELL_EXE, "-NonInteractive", "-NoProfile", "-Command", script],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -1520,7 +1530,7 @@ def _escanear_licencia_windows() -> dict[str, Any]:
     try:
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         result = subprocess.run(
-            ["powershell", "-NonInteractive", "-NoProfile", "-Command", ps_script],
+            [_POWERSHELL_EXE, "-NonInteractive", "-NoProfile", "-Command", ps_script],
             capture_output=True,
             text=True,
             encoding="utf-8",

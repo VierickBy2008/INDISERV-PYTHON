@@ -101,10 +101,10 @@ def verify_password(dni: str, plain_password: str, stored_hash: str) -> tuple[bo
 
 
 def generate_secure_ticket_id(dni_or_prefix: str | None, tag: str = "TICKET") -> str:
-    """Genera un ID de ticket con 32 bits de entropía criptográfica (4.29 mil millones de combinaciones)."""
+    """Genera un ID de ticket con 64 bits de entropía criptográfica (1.84 × 10^19 combinaciones)."""
     raw = str(dni_or_prefix or "").strip()
     pref = raw[:4] if len(raw) >= 4 else "USER"
-    token = secrets.token_hex(4).upper()
+    token = secrets.token_hex(8).upper()
     return f"{pref}-{tag}-{token}"
 
 

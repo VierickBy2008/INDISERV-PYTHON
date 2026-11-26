@@ -41,10 +41,17 @@ COLOR_ERR = P["rojo"]
 
 
 def _comprimir_imagen_avatar(ruta: str) -> str:
-    """Recorta a 192×192 y comprime a WebP/JPEG (<= 60 KB) devolviendo Data URI base64."""
-    img = Image.open(ruta)
-    img = ImageOps.exif_transpose(img).convert("RGB")
-    img = ImageOps.fit(img, (192, 192), Image.Resampling.LANCZOS)
+    """Recorta a 192×192 y comprime a WebP/JPEG (<= 60 KB) con protección anti-DecompressionBomb."""
+    if os.path.getsize(ruta) > 15_000_000:
+        raise ValueError("La imagen supera el límite seguro de 15 MB.")
+    prev_max = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = 40_000_000
+    try:
+        img = Image.open(ruta)
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        img = ImageOps.fit(img, (192, 192), Image.Resampling.LANCZOS)
+    finally:
+        Image.MAX_IMAGE_PIXELS = prev_max
 
     for fmt, mime in (("WEBP", "image/webp"), ("JPEG", "image/jpeg")):
         for q in (82, 70, 56, 44):
