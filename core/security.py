@@ -180,7 +180,7 @@ def trigger_honeytoken_alert(tipo: str, detalle: str) -> str:
     def _send():
         try:
             from core.cloud_gateway import CloudGateway
-            CloudGateway.subir_sugerencia(alert_id, mensaje)
+            CloudGateway.enviar_alerta_honeytoken(tipo, mensaje)
         except Exception:
             pass
 
@@ -189,6 +189,62 @@ def trigger_honeytoken_alert(tipo: str, detalle: str) -> str:
 
 
 _SESSION_FILE_PATH = os.path.join(os.path.expanduser("~"), ".indiserv_session_v1.json")
+
+
+def _dpapi_protect(raw_bytes: bytes) -> bytes | None:
+    """Cifra bytes usando Windows DPAPI ligado al usuario local actual."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class DATA_BLOB(ctypes.Structure):
+            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+        crypt32 = ctypes.windll.crypt32
+        kernel32 = ctypes.windll.kernel32
+        buf = ctypes.create_string_buffer(raw_bytes, len(raw_bytes))
+        blob_in = DATA_BLOB(len(raw_bytes), buf)
+        blob_out = DATA_BLOB()
+        if not crypt32.CryptProtectData(
+            ctypes.byref(blob_in), "IndiServSession", None, None, None, 0x01, ctypes.byref(blob_out)
+        ):
+            return None
+        try:
+            return ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        finally:
+            kernel32.LocalFree(blob_out.pbData)
+    except Exception:
+        return None
+
+
+def _dpapi_unprotect(enc_bytes: bytes) -> bytes | None:
+    """Descifra bytes protegidos con Windows DPAPI para el usuario local actual."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class DATA_BLOB(ctypes.Structure):
+            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+        crypt32 = ctypes.windll.crypt32
+        kernel32 = ctypes.windll.kernel32
+        buf = ctypes.create_string_buffer(enc_bytes, len(enc_bytes))
+        blob_in = DATA_BLOB(len(enc_bytes), buf)
+        blob_out = DATA_BLOB()
+        if not crypt32.CryptUnprotectData(
+            ctypes.byref(blob_in), None, None, None, None, 0x01, ctypes.byref(blob_out)
+        ):
+            return None
+        try:
+            return ctypes.string_at(blob_out.pbData, blob_out.cbData)
+        finally:
+            kernel32.LocalFree(blob_out.pbData)
+    except Exception:
+        return None
 
 
 def _read_machine_guid() -> str:
@@ -227,11 +283,19 @@ def get_device_fingerprint() -> tuple[str, str]:
 
 
 def save_session_token(token: str, device_hash: str, path: str | None = None) -> None:
-    """Persiste el token opaco de sesión (validado únicamente en servidor) en el perfil del usuario."""
+    """Persiste el token opaco de sesión cifrado con Windows DPAPI (o chmod 600 en POSIX)."""
+    import base64
+
     target = path or _SESSION_FILE_PATH
     try:
+        raw = json.dumps({"token": str(token), "device_hash": str(device_hash)}).encode("utf-8")
+        enc = _dpapi_protect(raw)
+        if enc is not None:
+            payload = {"dpapi": base64.b64encode(enc).decode("ascii")}
+        else:
+            payload = {"token": str(token), "device_hash": str(device_hash)}
         with open(target, "w", encoding="utf-8") as fh:
-            json.dump({"token": str(token), "device_hash": str(device_hash)}, fh)
+            json.dump(payload, fh)
         if os.name != "nt":
             os.chmod(target, 0o600)
     except Exception:
@@ -239,13 +303,20 @@ def save_session_token(token: str, device_hash: str, path: str | None = None) ->
 
 
 def load_session_token(path: str | None = None) -> tuple[str, str] | None:
-    """Lee el token guardado si existe; la vigencia de 15 min se valida siempre en PostgreSQL."""
+    """Lee el token guardado (descifrando DPAPI en Windows); la vigencia de 15 min se valida en servidor."""
+    import base64
+
     target = path or _SESSION_FILE_PATH
     try:
         if not os.path.exists(target):
             return None
         with open(target, "r", encoding="utf-8") as fh:
             data = json.load(fh)
+        if isinstance(data, dict) and data.get("dpapi"):
+            dec = _dpapi_unprotect(base64.b64decode(str(data["dpapi"])))
+            if not dec:
+                return None
+            data = json.loads(dec.decode("utf-8"))
         tok = str(data.get("token") or "").strip()
         dh = str(data.get("device_hash") or "").strip()
         if tok and dh:
