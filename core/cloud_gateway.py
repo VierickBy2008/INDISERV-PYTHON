@@ -370,6 +370,12 @@ class CloudGateway:
             return list(res["alerts"])
         return []
 
+    _share_tokens: dict[str, str] = {}
+
+    @staticmethod
+    def obtener_share_token(ticket_id: str) -> str:
+        return CloudGateway._share_tokens.get(str(ticket_id or "").strip(), "")
+
     @staticmethod
     def subir_ticket(ticket_id: str, dni: str, hw: dict, diag: dict) -> bool:
         """Envía un ticket validado por sesión activa a través de auth-otp (sin acceso anon directo)."""
@@ -391,6 +397,9 @@ class CloudGateway:
             }
         )
         if res.get("ok"):
+            st = str(res.get("share_token") or "").strip()
+            if st:
+                CloudGateway._share_tokens[str(ticket_id).strip()] = st
             print(f"[CloudGateway] [OK] Ticket {ticket_id} sincronizado de forma segura.")
             return True
         print(f"[CloudGateway.subir_ticket] [ERROR] {res.get('error') or res.get('error_conexion')}")

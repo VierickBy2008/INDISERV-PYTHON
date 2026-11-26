@@ -18,26 +18,17 @@ from urllib.parse import quote
 from core.config import WEB_VIEWER_URL
 
 
-def abrir_gemelo_digital(id_ticket: str, root_widget=None) -> str:
+def abrir_gemelo_digital(id_ticket: str, root_widget=None, share_token: str | None = None) -> str:
     """
-    Construye el enlace público al Gemelo Digital 3D, lo abre en el
-    navegador predeterminado del sistema y lo copia al portapapeles.
-
-    Parámetros
-    ----------
-    id_ticket   : str  — ID del ticket tal como fue insertado en Supabase.
-                         Se aplica .strip() para garantizar consistencia exacta.
-    root_widget : obj  — Widget raíz de CustomTkinter/Tkinter (ej. instancia
-                         de CTk). Necesario para usar el portapapeles nativo
-                         de la GUI. Si es None, se intenta con pyperclip.
-
-    Retorna
-    -------
-    str — La URL completa generada (útil para mostrarla en la UI).
+    Construye el enlace al Gemelo Digital 3D (con share_token criptográfico de 128 bits),
+    lo abre en el navegador predeterminado del sistema y lo copia al portapapeles.
     """
     ticket_sanitizado = quote(str(id_ticket).strip())
+    st_clean = quote(str(share_token or "").strip())
 
     enlace_completo = f"{WEB_VIEWER_URL}/?ticket={ticket_sanitizado}"
+    if st_clean:
+        enlace_completo += f"&st={st_clean}"
 
     print(f"\n[Gemelo Digital] Enlace Público Generado: {enlace_completo}")
 

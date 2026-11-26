@@ -119,7 +119,8 @@ class ModalesMixin:
         hilo_sync.start()
         hilo_sync.join(timeout=4.0)
 
-        enlace_completo = abrir_gemelo_digital(id_ticket, root_widget=self)
+        st = CloudGateway.obtener_share_token(id_ticket)
+        enlace_completo = abrir_gemelo_digital(id_ticket, root_widget=self, share_token=st)
         self.modal_gemelo_digital(id_ticket, enlace_completo)
         return enlace_completo
 
@@ -1101,9 +1102,11 @@ class ModalesMixin:
                         font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
                     ).pack(fill="x")
 
+                    st_val = str(item.get("share_token") or "").strip()
+                    url_3d = f"https://indiserv-web3d.vercel.app/?ticket={t_id}" + (f"&st={st_val}" if st_val else "")
                     boton(
                         fila, "Abrir Reporte 3D",
-                        lambda tid=t_id: webbrowser.open(f"https://indiserv-web3d.vercel.app/?ticket={tid}"),
+                        lambda u=url_3d: webbrowser.open(u),
                         variante="primario", width=124, height=30, font=F_SMALL
                     ).pack(side="right", padx=10, pady=8)
 
