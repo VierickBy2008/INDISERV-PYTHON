@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Permitir claves públicas publishable de Supabase, honeytokens intencionales y plantillas .env.example"
+paths = [
+  '''^\.env\.example$''',
+  '''(^|/)_TEMPLATE/\.env\.example$''',
+]
+regexes = [
+  '''sb_publishable_[A-Za-z0-9_-]+''',
+  '''ag_canary_[A-Za-z0-9_]+''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.canary_trap_indiserv''',
+]
