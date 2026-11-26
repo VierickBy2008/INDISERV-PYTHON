@@ -93,7 +93,10 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                 if pil_img.width > 1920 or pil_img.height > 1080:
                     pil_img.thumbnail((1920, 1080), Image.Resampling.BILINEAR)
                 self._bg_pil = pil_img
-                self.bg_image = ctk.CTkImage(self._bg_pil, size=(980, 700))
+                init_w = max(980, self.winfo_screenwidth())
+                init_h = max(700, self.winfo_screenheight())
+                self._bg_last_size = (init_w, init_h)
+                self.bg_image = ctk.CTkImage(self._bg_pil, size=(init_w, init_h))
                 self.bg_label = ctk.CTkLabel(self, image=self.bg_image, text="")
                 self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
                 self._bg_visible = True
@@ -114,6 +117,9 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         self._session_token: str | None = None
         self._otp_timer_after: str | None = None
         self._avatar_img_refs: dict[str, ctk.CTkImage] = {}
+        self._avatar_cache_sig: dict[str, tuple[int, str]] = {}
+        self._dashboard_frame: ctk.CTkFrame | None = None
+        self._dashboard_cache_key: tuple | None = None
 
         self.arbol_fase = 0
         self.arbol_rama = -1
@@ -221,11 +227,15 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
     def _decodificar_avatar_ctk(
         self, avatar_data: str | None, size: int = 32, cache_key: str = "topbar"
     ) -> ctk.CTkImage | None:
-        """Decodifica un Data URI base64 en un CTkImage circular seguro para mostrar en UI."""
+        """Decodifica un Data URI base64 en un CTkImage circular seguro con memoización."""
         raw = str(avatar_data or "").strip()
         if not raw.startswith("data:image/") or ";base64," not in raw:
             self._avatar_img_refs.pop(cache_key, None)
+            self._avatar_cache_sig.pop(cache_key, None)
             return None
+        sig = (size, raw)
+        if self._avatar_cache_sig.get(cache_key) == sig and cache_key in self._avatar_img_refs:
+            return self._avatar_img_refs[cache_key]
         try:
             b64 = raw.split(";base64,", 1)[1]
             img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
@@ -235,6 +245,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
             img.putalpha(mask)
             ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
             self._avatar_img_refs[cache_key] = ctk_img
+            self._avatar_cache_sig[cache_key] = sig
             return ctk_img
         except Exception:
             return None
@@ -382,17 +393,31 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                 pass
         self.destroy()
 
-    def limpiar_panel(self, mostrar_fondo: bool = False):
-        """Elimina todos los widgets excepto el fondo y controla visibilidad del wallpaper."""
+    def limpiar_panel(self, mostrar_fondo: bool = False, destruir_dashboard: bool = False):
+        """
+        Elimina vistas transitorias y controla el fondo. Preserva el Dashboard en caché
+        (place_forget) para volver en <15 ms, salvo que se pida destruir_dashboard=True.
+        """
         if self._stress_actual and self._stress_actual.activo:
             try:
                 self._stress_actual.cancelar()
             except Exception:
                 pass
         self._mostrar_fondo(mostrar_fondo)
+        dash = getattr(self, "_dashboard_frame", None)
         for widget in self.winfo_children():
-            if widget != self.bg_label:
-                widget.destroy()
+            if widget == self.bg_label:
+                continue
+            if not destruir_dashboard and dash is not None and widget == dash:
+                try:
+                    widget.place_forget()
+                except Exception:
+                    pass
+                continue
+            widget.destroy()
+        if destruir_dashboard:
+            self._dashboard_frame = None
+            self._dashboard_cache_key = None
 
     def _hw(self, clave: str, fallback: str = "N/A") -> str:
         """Acceso seguro al dict de hardware."""
@@ -489,7 +514,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         return header
 
     def pantalla_login(self):
-        self.limpiar_panel(mostrar_fondo=True)
+        self.limpiar_panel(mostrar_fondo=True, destruir_dashboard=True)
         self._colocar_boton_fullscreen_flotante()
 
         card = ctk.CTkFrame(

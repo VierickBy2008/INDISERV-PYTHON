@@ -29,6 +29,7 @@ from core.ui_theme import (
     estilo_checkbox,
     estilo_combo,
     estilo_textbox,
+    habilitar_scroll_fluido,
     toast,
     animar_entrada_panel,
 )
@@ -76,13 +77,16 @@ class DiagnosticoMixin:
             col_izq, "Filtrar síntomas por palabra clave (ej. pantalla, disco, red)…", height=32
         )
         self._entry_filtro_sint.pack(fill="x", padx=12, pady=(0, 6))
-        self._entry_filtro_sint.bind("<KeyRelease>", lambda e: self._filtrar_checkboxes_sintomas())
+        self._filtro_sint_after: str | None = None
+        self._entry_filtro_sint.bind("<KeyRelease>", lambda _e: self._programar_filtro_sintomas())
 
         scroll = ctk.CTkScrollableFrame(col_izq, fg_color=P["surface"], corner_radius=8)
         scroll.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        habilitar_scroll_fluido(scroll)
 
         self._check_vars: list[ctk.BooleanVar] = []
         self._check_widgets: list[tuple[str, ctk.CTkCheckBox]] = []
+        self._check_visibles: list[bool] = []
         est_chk = estilo_checkbox()
         for i, texto in enumerate(MatrizSintomas.SINTOMAS):
             var = ctk.BooleanVar(value=False)
@@ -93,6 +97,7 @@ class DiagnosticoMixin:
             )
             chk.pack(anchor="w", pady=4, padx=8, fill="x")
             self._check_widgets.append((texto.lower(), chk))
+            self._check_visibles.append(True)
 
         fila_btn_izq = ctk.CTkFrame(col_izq, fg_color="transparent")
         fila_btn_izq.pack(fill="x", padx=12, pady=(0, 10))
@@ -115,6 +120,7 @@ class DiagnosticoMixin:
             col_der, fg_color=P["surface"], corner_radius=8, height=265
         )
         self._cards_multisintoma.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+        habilitar_scroll_fluido(self._cards_multisintoma)
 
         self._res_multisintoma = ctk.CTkTextbox(col_der, height=145, **estilo_textbox())
         self._res_multisintoma.pack(fill="x", padx=12, pady=(0, 10))
@@ -130,13 +136,30 @@ class DiagnosticoMixin:
                 f"{n} seleccionado(s)", tipo="ok" if n > 0 else "neutro"
             )
 
+    def _programar_filtro_sintomas(self):
+        if getattr(self, "_filtro_sint_after", None):
+            try:
+                self.after_cancel(self._filtro_sint_after)
+            except Exception:
+                pass
+        self._filtro_sint_after = self.after(120, self._filtrar_checkboxes_sintomas)
+
     def _filtrar_checkboxes_sintomas(self):
+        self._filtro_sint_after = None
+        if not hasattr(self, "_entry_filtro_sint") or not self._entry_filtro_sint.winfo_exists():
+            return
         q = self._entry_filtro_sint.get().strip().lower()
-        for texto, chk in getattr(self, "_check_widgets", []):
-            if not q or q in texto:
+        vis = getattr(self, "_check_visibles", None)
+        for idx, (texto, chk) in enumerate(getattr(self, "_check_widgets", [])):
+            mostrar = (not q) or (q in texto)
+            if vis is not None and idx < len(vis) and vis[idx] == mostrar:
+                continue
+            if mostrar:
                 chk.pack(anchor="w", pady=4, padx=8, fill="x")
             else:
                 chk.pack_forget()
+            if vis is not None and idx < len(vis):
+                vis[idx] = mostrar
 
     def _limpiar_checks(self):
         for var in self._check_vars:
@@ -329,6 +352,7 @@ class DiagnosticoMixin:
             col_izq, fg_color=P["surface"], corner_radius=8, height=250
         )
         self._scroll_resultados_busq.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+        habilitar_scroll_fluido(self._scroll_resultados_busq)
 
         self._res_busqueda = ctk.CTkTextbox(col_izq, height=115, **estilo_textbox())
         self._res_busqueda.pack(fill="x", padx=12, pady=(0, 10))

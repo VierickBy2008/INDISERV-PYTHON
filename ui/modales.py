@@ -33,6 +33,7 @@ from core.ui_theme import (
     estilo_tabview,
     estilo_textbox,
     estilizar_toplevel,
+    habilitar_scroll_fluido,
     toast,
 )
 
@@ -500,6 +501,7 @@ class ModalesMixin:
 
         scroll_devs = ctk.CTkScrollableFrame(t_dev, fg_color=P["bg"], corner_radius=10)
         scroll_devs.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        habilitar_scroll_fluido(scroll_devs)
 
         def _render_devices(devices: list[dict]):
             if not v.winfo_exists():
@@ -1122,11 +1124,27 @@ class ModalesMixin:
 
         v.protocol("WM_DELETE_WINDOW", _cerrar_modal)
 
+        filtro_after = {"id": None}
+
         def _refiltrar(_val=None):
+            if filtro_after["id"]:
+                try:
+                    v.after_cancel(filtro_after["id"])
+                except Exception:
+                    pass
+                filtro_after["id"] = None
             _render_tickets(filas_cache)
 
+        def _refiltrar_debounced(_ev=None):
+            if filtro_after["id"]:
+                try:
+                    v.after_cancel(filtro_after["id"])
+                except Exception:
+                    pass
+            filtro_after["id"] = v.after(150, _refiltrar)
+
         estilo_opt = {k: val for k, val in estilo_combo().items() if k != "border_color"}
-        ent_filtro.bind("<KeyRelease>", _refiltrar)
+        ent_filtro.bind("<KeyRelease>", _refiltrar_debounced)
         ctk.CTkOptionMenu(
             fila_ctrl, variable=var_tipo,
             values=["Todos", "Laptops", "PCs", "Teléfonos", "Con Alertas"],
@@ -1145,6 +1163,7 @@ class ModalesMixin:
 
         scroll = ctk.CTkScrollableFrame(card, fg_color=P["bg"], corner_radius=8)
         scroll.pack(fill="both", expand=True, padx=14, pady=4)
+        habilitar_scroll_fluido(scroll)
 
         lbl_estado = ctk.CTkLabel(
             scroll, text="Consultando tus reportes privados en Supabase…",

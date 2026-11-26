@@ -17,12 +17,12 @@ from core.ui_theme import (
     Badge,
     BarraMetrica,
     TarjetaMetrica,
-    PuntoPulso,
     boton,
     tarjeta,
     overline,
     estilo_tabview,
     estilo_textbox,
+    habilitar_scroll_fluido,
     toast,
     nivel_por_umbral,
     color_por_umbral,
@@ -32,9 +32,27 @@ from core.ui_theme import (
 class DashboardMixin:
     """Mixin con el dashboard principal y las pestañas General, CPU/RAM, Gráficos, Discos y Red."""
 
-    def pantalla_dashboard(self):
-        self.limpiar_panel()
+    def pantalla_dashboard(self, forzar_reconstruccion: bool = False):
         hw = self.hardware_detectado or {}
+        cache_key = (id(hw), self.dni_usuario_activo)
+        dash = getattr(self, "_dashboard_frame", None)
+        if (
+            not forzar_reconstruccion
+            and dash is not None
+            and getattr(self, "_dashboard_cache_key", None) == cache_key
+        ):
+            try:
+                if dash.winfo_exists():
+                    self.limpiar_panel(mostrar_fondo=False, destruir_dashboard=False)
+                    dash.place(relx=0.5, rely=0.5, relwidth=0.96, relheight=0.94, anchor="center")
+                    dash.lift()
+                    self._refrescar_avatar_topbar()
+                    self._actualizar_texto_btn_fullscreen()
+                    return
+            except Exception:
+                pass
+
+        self.limpiar_panel(mostrar_fondo=False, destruir_dashboard=True)
         score = calcular_health_score(hw)
         if score >= 80:
             t_score, lbl_score = "ok", f"Salud Global: {score}/100 · Óptimo"
@@ -48,6 +66,8 @@ class DashboardMixin:
             fg_color=P["bg"], border_width=1, border_color=P["borde_fuerte"]
         )
         frame.place(relx=0.5, rely=0.5, relwidth=0.96, relheight=0.94, anchor="center")
+        self._dashboard_frame = frame
+        self._dashboard_cache_key = cache_key
 
         topbar = ctk.CTkFrame(
             frame, fg_color=P["surface"], corner_radius=11,
@@ -68,9 +88,9 @@ class DashboardMixin:
         self._lbl_topbar_avatar.bind("<Button-1>", lambda _e: self.modal_mi_cuenta())
         self._refrescar_avatar_topbar()
 
-        p_dot = PuntoPulso(fila_tit, color=P["primario"])
-        p_dot.pack(side="left", padx=(0, 7))
-        p_dot.iniciar()
+        ctk.CTkLabel(
+            fila_tit, text="●", font=("Segoe UI", 14), text_color=P["primario"]
+        ).pack(side="left", padx=(0, 7))
         ctk.CTkLabel(
             fila_tit, text="IndiServ Analytica",
             font=F_H2, text_color=P["texto"]
@@ -247,7 +267,7 @@ class DashboardMixin:
                 self.hardware_detectado = LectorHardware.escanear_entorno()
             except Exception:
                 pass
-            self._post_ui(self.pantalla_dashboard)
+            self._post_ui(lambda: self.pantalla_dashboard(forzar_reconstruccion=True))
 
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -448,6 +468,7 @@ class DashboardMixin:
 
         body_cpu = ctk.CTkScrollableFrame(c_cpu, fg_color="transparent", corner_radius=0)
         body_cpu.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+        habilitar_scroll_fluido(body_cpu)
 
         # Panel estructurado de Telemetría de Silicio (cuadrícula + cachés + ISA)
         spec_grid = ctk.CTkFrame(body_cpu, fg_color="transparent")
@@ -583,6 +604,7 @@ class DashboardMixin:
 
         body_ram = ctk.CTkScrollableFrame(c_ram, fg_color="transparent", corner_radius=0)
         body_ram.pack(fill="both", expand=True, padx=6, pady=(4, 8))
+        habilitar_scroll_fluido(body_ram)
 
         ram_grid = ctk.CTkFrame(body_ram, fg_color="transparent")
         ram_grid.pack(fill="x", padx=6, pady=(2, 8))
@@ -661,6 +683,7 @@ class DashboardMixin:
         gpus = hw.get("gpus", []) or []
         scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=6, pady=4)
+        habilitar_scroll_fluido(scroll)
 
         if not gpus:
             c = tarjeta(scroll)
@@ -719,6 +742,7 @@ class DashboardMixin:
         )
         sf = ctk.CTkScrollableFrame(c_fis, fg_color=P["surface"], corner_radius=8)
         sf.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        habilitar_scroll_fluido(sf)
 
         if not fisicos:
             ctk.CTkLabel(
@@ -749,6 +773,7 @@ class DashboardMixin:
         )
         sp = ctk.CTkScrollableFrame(c_par, fg_color=P["surface"], corner_radius=8)
         sp.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        habilitar_scroll_fluido(sp)
 
         if not partics:
             ctk.CTkLabel(sp, text="No se detectaron particiones.", font=F_SMALL).pack(padx=8, pady=8)

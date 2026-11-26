@@ -150,40 +150,36 @@ def animar_entrada_panel(
     panel,
     relx: float = 0.5,
     rely_final: float = 0.5,
-    desplazamiento: float = 0.012,
-    pasos: int = 5,
+    desplazamiento: float = 0.0,
+    pasos: int = 1,
 ) -> None:
     """
-    Posiciona el panel con transición corta para tarjetas compactas y colocación
-    instantánea en contenedores grandes para evitar re-layout pesado en Tkinter.
+    Posiciona el panel de forma instantánea y sin re-layouts incrementales
+    para respuesta inmediata en Tkinter/CustomTkinter.
     """
     if not _vivo(panel):
         return
-    try:
-        req_w = int(panel.cget("width") or 0)
-    except Exception:
-        req_w = 0
+    panel.place(relx=relx, rely=rely_final, anchor="center")
 
-    if req_w >= 620 or desplazamiento <= 0 or pasos <= 1:
-        panel.place(relx=relx, rely=rely_final, anchor="center")
+
+def habilitar_scroll_fluido(scroll_frame) -> None:
+    """
+    Mejora la fluidez y velocidad de la rueda del ratón en CTkScrollableFrame
+    ajustando el incremento nativo del canvas según plataforma (sin listeners extra).
+    """
+    canvas = getattr(scroll_frame, "_parent_canvas", None)
+    if canvas is None:
         return
-
-    rely_ini = rely_final + desplazamiento
-    panel.place(relx=relx, rely=rely_ini, anchor="center")
-
-    def _step(i: int):
-        if not _vivo(panel):
-            return
-        t = _ease_out_quart(i / pasos)
-        rely_cur = rely_ini + (rely_final - rely_ini) * t
-        try:
-            panel.place_configure(rely=rely_cur)
-        except Exception:
-            return
-        if i < pasos:
-            panel.after(FRAME_MS, lambda: _step(i + 1))
-
-    panel.after(FRAME_MS, lambda: _step(1))
+    try:
+        if sys.platform.startswith("win"):
+            inc = 3
+        elif sys.platform == "darwin":
+            inc = 6
+        else:
+            inc = 32
+        canvas.configure(yscrollincrement=inc)
+    except Exception:
+        pass
 
 
 def _adjuntar_hover_borde_60fps(widget, color_base: str, color_hover: str, pasos: int = 8) -> None:
@@ -243,33 +239,10 @@ def boton(parent, texto: str, comando: Callable | None = None,
     if tiene_borde:
         _adjuntar_hover_borde_60fps(btn, borde_base, hover_borde)
 
-    if fg != "transparent":
-        press_col = _lerp_hex(fg, "#000000", 0.22)
-
-        def _press(_e=None):
-            if _vivo(btn):
-                try:
-                    btn.configure(fg_color=press_col)
-                except Exception:
-                    pass
-
-        def _release(_e=None):
-            if _vivo(btn):
-                try:
-                    btn.configure(fg_color=fg)
-                except Exception:
-                    pass
-
-        try:
-            btn.bind("<ButtonPress-1>", _press, add="+")
-            btn.bind("<ButtonRelease-1>", _release, add="+")
-        except Exception:
-            pass
-
     return btn
 
 
-def tarjeta(parent, alt: bool = False, **kw) -> ctk.CTkFrame:
+def tarjeta(parent, alt: bool = False, hover: bool = False, **kw) -> ctk.CTkFrame:
     borde_ini = kw.get("border_color", P["borde"])
     opciones = dict(
         fg_color=P["card_alt"] if alt else P["card"], corner_radius=12,
@@ -277,7 +250,8 @@ def tarjeta(parent, alt: bool = False, **kw) -> ctk.CTkFrame:
     )
     opciones.update(kw)
     frame = ctk.CTkFrame(parent, **opciones)
-    _adjuntar_hover_borde_60fps(frame, borde_ini, P["borde_fuerte"])
+    if hover:
+        _adjuntar_hover_borde_60fps(frame, borde_ini, P["borde_fuerte"])
     return frame
 
 
@@ -384,11 +358,11 @@ class Badge(ctk.CTkLabel):
 
 
 class BarraMetrica(ctk.CTkFrame):
-    """Etiqueta + valor + barra de progreso con interpolación fluida y bajo costo de redibujado."""
+    """Etiqueta + valor + barra de progreso de dibujado instantáneo y mínimo costo CPU."""
 
     def __init__(self, parent, titulo: str, valor_pct: float = 0.0, texto_valor: str = "",
                  warn: float = 70, err: float = 90, alto_barra: int = 8,
-                 animar: bool = True, **kw):
+                 animar: bool = False, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
         self._warn, self._err = warn, err
         self._actual = 0.0
@@ -410,7 +384,7 @@ class BarraMetrica(ctk.CTkFrame):
         self.barra.set(0)
         self.set(valor_pct, texto_valor, animar=animar)
 
-    def set(self, valor_pct: float, texto_valor: str | None = None, animar: bool = True):
+    def set(self, valor_pct: float, texto_valor: str | None = None, animar: bool = False):
         try:
             destino = max(0.0, min(100.0, float(valor_pct)))
         except (TypeError, ValueError):
@@ -434,7 +408,7 @@ class BarraMetrica(ctk.CTkFrame):
         if color_dest != self._color_actual:
             self._color_actual = color_dest
             self.barra.configure(progress_color=color_dest)
-        self._animar(self._actual, destino, paso=0, total=6)
+        self._animar(self._actual, destino, paso=0, total=3)
 
     def _animar(self, desde: float, hasta: float, paso: int, total: int):
         if not _vivo(self):
@@ -444,7 +418,7 @@ class BarraMetrica(ctk.CTkFrame):
         self._actual = valor
         self.barra.set(valor / 100)
         if paso + 1 < total:
-            self._after = self.after(20, lambda: self._animar(desde, hasta, paso + 1, total))
+            self._after = self.after(18, lambda: self._animar(desde, hasta, paso + 1, total))
         else:
             self._after = None
 
@@ -454,7 +428,7 @@ class BarraMetrica(ctk.CTkFrame):
 
 
 class TarjetaMetrica(ctk.CTkFrame):
-    """KPI compacto con realce de borde nítido en hover y al actualizar valores."""
+    """KPI compacto de bajo costo de redibujado."""
 
     def __init__(self, parent, titulo: str, valor: str = "—", subtitulo: str = "",
                  color: str | None = None, **kw):
@@ -463,7 +437,6 @@ class TarjetaMetrica(ctk.CTkFrame):
         opciones.update(kw)
         super().__init__(parent, **opciones)
         self._acento = color or P["cian"]
-        self._flash_after: str | None = None
         overline(self, titulo).pack(anchor="w", padx=12, pady=(10, 0))
         self.lbl_valor = ctk.CTkLabel(self, text=valor, font=F_METRIC,
                                       text_color=color or P["texto"], anchor="w")
@@ -471,44 +444,18 @@ class TarjetaMetrica(ctk.CTkFrame):
         self.lbl_sub = ctk.CTkLabel(self, text=subtitulo, font=F_CAPTION,
                                     text_color=P["texto_dim"], anchor="w")
         self.lbl_sub.pack(anchor="w", padx=12, pady=(0, 10))
-        _adjuntar_hover_borde_60fps(self, P["borde"], self._acento)
 
     def set(self, valor: str, subtitulo: str | None = None, color: str | None = None):
         self.lbl_valor.configure(text=valor)
-        if color:
+        if color and color != self._acento:
             self._acento = color
             self.lbl_valor.configure(text_color=color)
         if subtitulo is not None:
             self.lbl_sub.configure(text=subtitulo)
-        self._pulso_borde_60fps()
-
-    def _pulso_borde_60fps(self, paso: int = 0, total: int = 1):
-        if not _vivo(self):
-            return
-        if self._flash_after:
-            try:
-                self.after_cancel(self._flash_after)
-            except Exception:
-                pass
-            self._flash_after = None
-        try:
-            self.configure(border_color=self._acento)
-        except Exception:
-            return
-
-        def _restaurar():
-            self._flash_after = None
-            if _vivo(self):
-                try:
-                    self.configure(border_color=P["borde"])
-                except Exception:
-                    pass
-
-        self._flash_after = self.after(220, _restaurar)
 
 
 class PuntoPulso(ctk.CTkLabel):
-    """Indicador '●' con respiración sinusoidal eficiente (~10 Hz, sin saturar Tkinter)."""
+    """Indicador '●' con respiración ligera (~4 Hz solo durante pruebas activas)."""
 
     def __init__(self, parent, color: str = P["primario"], **kw):
         super().__init__(parent, text="●", font=("Segoe UI", 14), text_color=P["texto_dim"], **kw)
@@ -543,15 +490,15 @@ class PuntoPulso(ctk.CTkLabel):
     def _tick(self):
         if not self._on or not _vivo(self):
             return
-        self._fase = (self._fase + 0.45) % (2.0 * math.pi)
+        self._fase = (self._fase + 0.8) % (2.0 * math.pi)
         onda = 0.5 + 0.5 * math.sin(self._fase)
         col = _lerp_hex(P["borde_fuerte"], self._color, onda)
         self.configure(text_color=col)
-        self._after = self.after(100, self._tick)
+        self._after = self.after(250, self._tick)
 
 
 class Sparkline(tk.Canvas):
-    """Mini-gráfico de líneas con interpolación de muestras a 60 FPS (16 ms)."""
+    """Mini-gráfico de líneas con redibujado directo de bajo costo (1 pasada por muestra)."""
 
     def __init__(self, parent, ancho: int = 400, alto: int = 90, max_puntos: int = 40, **kw):
         super().__init__(parent, width=ancho, height=alto, bg=P["surface"],
@@ -559,17 +506,14 @@ class Sparkline(tk.Canvas):
         self.W, self.H = ancho, alto
         self.max_puntos = max_puntos
         self.series: dict[str, dict] = {}
-        self._fase_halo = 0.0
-        self._anim_after: str | None = None
         self._dibujar_rejilla()
 
     def agregar_serie(self, nombre: str, color: str, maximo: float | None = None):
-        self.series[nombre] = {"color": color, "datos": [], "display": [], "max": maximo}
+        self.series[nombre] = {"color": color, "datos": [], "max": maximo}
 
     def limpiar(self):
         for s in self.series.values():
             s["datos"].clear()
-            s["display"].clear()
         self._redibujar()
 
     def push(self, nombre: str, valor: float):
@@ -580,35 +524,8 @@ class Sparkline(tk.Canvas):
         s["datos"].append(v)
         if len(s["datos"]) > self.max_puntos:
             s["datos"].pop(0)
-        prev = s["display"][-1] if s["display"] else v
-        s["display"].append(prev)
-        if len(s["display"]) > self.max_puntos:
-            s["display"].pop(0)
-        self._iniciar_interpolacion_60fps()
-
-    def _iniciar_interpolacion_60fps(self, paso: int = 0, total: int = 10):
-        if not _vivo(self):
-            return
-        if self._anim_after and paso == 0:
-            try:
-                self.after_cancel(self._anim_after)
-            except Exception:
-                pass
-        for s in self.series.values():
-            if s["datos"] and s["display"]:
-                meta = s["datos"][-1]
-                act = s["display"][-1]
-                s["display"][-1] = act + (meta - act) * 0.42
-        self._fase_halo = (self._fase_halo + 0.35) % (2.0 * math.pi)
-        self._redibujar()
-        if paso < total:
-            self._anim_after = self.after(FRAME_MS, lambda: self._iniciar_interpolacion_60fps(paso + 1, total))
-        else:
-            for s in self.series.values():
-                if s["datos"] and s["display"]:
-                    s["display"][-1] = s["datos"][-1]
+        if _vivo(self):
             self._redibujar()
-            self._anim_after = None
 
     def _dibujar_rejilla(self):
         for i in range(1, 4):
@@ -618,9 +535,8 @@ class Sparkline(tk.Canvas):
     def _redibujar(self):
         self.delete("serie")
         pad = 6
-        radio_halo = 4.5 + 1.8 * math.sin(self._fase_halo)
         for s in self.series.values():
-            datos = s["display"] if s.get("display") else s["datos"]
+            datos = s["datos"]
             if len(datos) < 2:
                 continue
             tope = s["max"] or max(max(datos), 1e-9) * 1.15
@@ -633,34 +549,19 @@ class Sparkline(tk.Canvas):
             self.create_line(*puntos, fill=s["color"], width=2, smooth=True, tags="serie")
             lx, ly = puntos[-2], puntos[-1]
             col_halo = _lerp_hex(P["surface"], s["color"], 0.45)
-            self.create_oval(lx - radio_halo, ly - radio_halo, lx + radio_halo, ly + radio_halo,
+            self.create_oval(lx - 5, ly - 5, lx + 5, ly + 5,
                              outline=col_halo, width=1, tags="serie")
             self.create_oval(lx - 3, ly - 3, lx + 3, ly + 3,
                              fill=s["color"], outline="", tags="serie")
 
 
-def fade_in(ventana, duracion_ms: int = 100, pasos: int = 5):
-    """Aparición gradual ágil (5 pasos) con mínimo costo para el compositor DWM."""
-    try:
-        ventana.attributes("-alpha", 0.0)
-    except Exception:
-        return
-
-    def _paso(i: int):
-        if not _vivo(ventana):
-            return
-        try:
-            ventana.attributes("-alpha", min(1.0, _ease_out_quart(i / pasos)))
-        except Exception:
-            return
-        if i < pasos:
-            ventana.after(20, lambda: _paso(i + 1))
-
-    _paso(1)
+def fade_in(ventana, duracion_ms: int = 0, pasos: int = 1):
+    """Muestra la ventana al instante sin parpadeo alpha en el compositor del sistema."""
+    return
 
 
 def estilizar_toplevel(ventana, master, titulo: str, ancho: int, alto: int, modal: bool = True):
-    """Fondo oscuro, centrado sobre la ventana principal, modal y con fade-in a 60 FPS."""
+    """Fondo oscuro, centrado sobre la ventana principal y apertura modal inmediata."""
     ventana.title(titulo)
     ventana.configure(fg_color=P["bg"])
     ventana.resizable(False, False)
@@ -675,7 +576,6 @@ def estilizar_toplevel(ventana, master, titulo: str, ancho: int, alto: int, moda
         ventana.transient(master)
     except Exception:
         pass
-    fade_in(ventana)
     if modal:
         def _grab():
             if _vivo(ventana):
@@ -684,40 +584,18 @@ def estilizar_toplevel(ventana, master, titulo: str, ancho: int, alto: int, moda
                     ventana.focus_force()
                 except Exception:
                     pass
-        ventana.after(90, _grab)
+        ventana.after(0, _grab)
 
 
 def toast(master, mensaje: str, tipo: str = "ok", duracion_ms: int = 3800):
-    """Notificación flotante inferior con deslizamiento a 60 FPS (16 ms) y autocierre suave."""
+    """Notificación flotante inferior de aparición instantánea sin re-layout masivo de la ventana."""
     bg, fg = _BADGES.get(tipo, _BADGES["info"])
     iconos = {"ok": "✔", "warn": "⚠", "err": "✖", "info": "ℹ"}
-    marco = ctk.CTkFrame(master, fg_color=bg, corner_radius=0,
+    marco = ctk.CTkFrame(master, fg_color=bg, corner_radius=8,
                          border_width=1, border_color=fg)
     ctk.CTkLabel(marco, text=f"{iconos.get(tipo, 'ℹ')}  {mensaje}", font=F_SMALL,
                  text_color=fg, wraplength=520, justify="left").pack(padx=14, pady=8)
-
-    def _deslizar_entrada(i: int, total: int = 16):
-        if not _vivo(marco):
-            return
-        t = _ease_out_quart((i + 1) / total)
-        rely = 1.05 - 0.09 * t
-        marco.place(relx=0.5, rely=rely, anchor="s")
-        marco.lift()
-        if i + 1 < total:
-            marco.after(FRAME_MS, lambda: _deslizar_entrada(i + 1, total))
-
-    def _deslizar_salida(i: int = 0, total: int = 12):
-        if not _vivo(marco):
-            return
-        t = (i + 1) / total
-        rely = 0.96 + 0.10 * (t * t)
-        marco.place(relx=0.5, rely=rely, anchor="s")
-        if i + 1 < total:
-            marco.after(FRAME_MS, lambda: _deslizar_salida(i + 1, total))
-        else:
-            if _vivo(marco):
-                marco.destroy()
-
-    _deslizar_entrada(0)
-    marco.after(duracion_ms, lambda: _deslizar_salida(0) if _vivo(marco) else None)
+    marco.place(relx=0.5, rely=0.96, anchor="s")
+    marco.lift()
+    marco.after(duracion_ms, lambda: marco.destroy() if _vivo(marco) else None)
     return marco
