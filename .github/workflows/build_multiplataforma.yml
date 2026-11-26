@@ -52,19 +52,19 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Instalar dependencias de sistema en Linux (Tkinter / X11)
+      - name: Instalar dependencias de sistema en Linux (Tkinter / X11 / GCC)
         if: matrix.os_name == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk python3-dev libx11-6 libxcb1
+          sudo apt-get install -y python3-tk python3-dev libx11-6 libxcb1 build-essential
 
       - name: Instalar librerías de Python y PyInstaller
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -c "import customtkinter, PIL, psutil, supabase, dotenv, cryptography; print('DEPS_OK')"
+          python -c "import customtkinter, PIL, psutil, supabase, dotenv, cryptography, Cython; print('DEPS_OK')"
 
-      - name: Compilar ejecutable autónomo con PyInstaller
+      - name: Compilar módulos a C nativo (Cython) y empaquetar ejecutable
         run: python build_executable.py
 
       - name: Empaquetar .app y binario en macOS
