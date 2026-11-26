@@ -445,25 +445,70 @@ class DashboardMixin:
             font=F_H3, text_color=P["texto"], anchor="w", wraplength=410
         ).pack(fill="x", padx=12, pady=(0, 4))
 
-        # Panel compacto estilo CPU-Z (Codename, Socket, Tech/TDP, Voltaje, Relojes/Bus, F/M/S, Cachés e ISA)
-        cpuz_box = ctk.CTkFrame(c_cpu, fg_color=P["surface"], corner_radius=8, border_width=1, border_color=P["borde"])
-        cpuz_box.pack(fill="x", padx=12, pady=(0, 6))
-        virt_lbl = "VT-x/AMD-V Activa" if hw.get("cpu_virtualizacion") is True else (
-            "VT-x/AMD-V Inactiva" if hw.get("cpu_virtualizacion") is False else "Virt: N/D"
+        # Panel estructurado estilo CPU-Z (cuadrícula de especificaciones + cachés + ISA)
+        cpuz_grid = ctk.CTkFrame(c_cpu, fg_color="transparent")
+        cpuz_grid.pack(fill="x", padx=12, pady=(0, 6))
+        for col in range(4):
+            cpuz_grid.grid_columnconfigure(col, weight=1, uniform="cpuz_cell")
+
+        def _celda_cpuz(parent, row, col, label, valor, color_val=P["texto"], colspan=1):
+            cell = ctk.CTkFrame(
+                parent, fg_color=P["surface"], corner_radius=7,
+                border_width=1, border_color=P["borde"]
+            )
+            cell.grid(
+                row=row, column=col, columnspan=colspan,
+                padx=(0 if col == 0 else 2, 0 if col + colspan == 4 else 2),
+                pady=2, sticky="nsew"
+            )
+            overline(cell, label).pack(anchor="w", padx=8, pady=(4, 0))
+            ctk.CTkLabel(
+                cell, text=str(valor or "N/D"), font=("Segoe UI Semibold", 11),
+                text_color=color_val, anchor="w"
+            ).pack(fill="x", padx=8, pady=(0, 4))
+
+        _celda_cpuz(cpuz_grid, 0, 0, "CODE NAME", hw.get("cpu_codename", "N/D"), P["cian"], colspan=2)
+        _celda_cpuz(cpuz_grid, 0, 2, "SOCKET", hw.get("cpu_socket", "N/D"), P["texto"])
+        _celda_cpuz(
+            cpuz_grid, 0, 3, "TECH · TDP",
+            f"{hw.get('cpu_tecnologia_nm', '?')} · {hw.get('cpu_tdp_max_w', '?')}",
+            P["primario"],
         )
-        isa_str = ", ".join(hw.get("cpu_isa_flags") or []) or "N/D"
+
+        f_actual_mhz = hw.get("frecuencia_actual_mhz")
+        reloj_txt = f"{float(f_actual_mhz):.0f} MHz" if isinstance(f_actual_mhz, (int, float)) and f_actual_mhz > 0 else f"{hw.get('frecuencia_actual_ghz', '?')} GHz"
+        bus_val = self._num(hw.get("cpu_bus_mhz"), 100.0)
+        _celda_cpuz(cpuz_grid, 1, 0, "RELOJ ACTUAL", reloj_txt, P["cian"])
+        _celda_cpuz(cpuz_grid, 1, 1, "MULTIPLICADOR", hw.get("cpu_multiplicador", "N/D"), P["texto"])
+        _celda_cpuz(cpuz_grid, 1, 2, "BUS · VCORE", f"{bus_val:.1f} MHz · {hw.get('cpu_voltaje_v', 'N/D')}", P["ambar"])
+        _celda_cpuz(
+            cpuz_grid, 1, 3, "FAM / MOD / STEP",
+            f"{hw.get('cpu_family', '?')} / {hw.get('cpu_model', '?')} / {hw.get('cpu_stepping', '?')}",
+            P["texto_sec"],
+        )
+
+        _celda_cpuz(
+            cpuz_grid, 2, 0, "CACHÉS DEL SILICIO (L1 / L2 / L3)",
+            f"L1: {hw.get('cpu_l1_cache', 'N/D')}    |    L2: {hw.get('cpu_l2_cache', 'N/D')}    |    L3: {hw.get('cpu_l3_cache', 'N/D')}",
+            P["texto"], colspan=3,
+        )
+        virt_raw = hw.get("cpu_virtualizacion")
+        virt_txt = "✔ Activa" if virt_raw is True else ("✖ Inactiva" if virt_raw is False else "N/D")
+        virt_col = P["primario"] if virt_raw is True else (P["ambar"] if virt_raw is False else P["texto_dim"])
+        _celda_cpuz(cpuz_grid, 2, 3, "VT-x / AMD-V", virt_txt, virt_col)
+
+        isa_lista = hw.get("cpu_isa_flags") or []
+        isa_str = " · ".join(isa_lista) if isa_lista else "N/D"
+        isa_bar = ctk.CTkFrame(
+            cpuz_grid, fg_color=P["surface"], corner_radius=7,
+            border_width=1, border_color=P["borde"]
+        )
+        isa_bar.grid(row=3, column=0, columnspan=4, pady=(2, 0), sticky="ew")
+        overline(isa_bar, "INSTRUCCIONES SOPORTADAS (ISA)", color=P["cian"]).pack(anchor="w", padx=8, pady=(4, 0))
         ctk.CTkLabel(
-            cpuz_box,
-            text=(
-                f"Code Name: {hw.get('cpu_codename', 'N/D')}   ·   Socket: {hw.get('cpu_socket', 'N/D')}\n"
-                f"Tech: {hw.get('cpu_tecnologia_nm', 'N/D')}   ·   TDP: {hw.get('cpu_tdp_max_w', 'N/D')}   ·   Vcore: {hw.get('cpu_voltaje_v', 'N/D')}\n"
-                f"Clock: {hw.get('frecuencia_actual_mhz', '?')} MHz ({hw.get('cpu_multiplicador', 'N/D')}) · Bus {hw.get('cpu_bus_mhz', 100)} MHz\n"
-                f"Family {hw.get('cpu_family', '?')} / Model {hw.get('cpu_model', '?')} / Step {hw.get('cpu_stepping', '?')}   ·   {virt_lbl}\n"
-                f"Cachés: L1 {hw.get('cpu_l1_cache', 'N/D')}  |  L2 {hw.get('cpu_l2_cache', 'N/D')}  |  L3 {hw.get('cpu_l3_cache', 'N/D')}\n"
-                f"ISA: {isa_str}"
-            ),
-            font=F_CAPTION, text_color=P["texto_sec"], anchor="w", justify="left", wraplength=410
-        ).pack(fill="x", padx=10, pady=6)
+            isa_bar, text=isa_str, font=F_CAPTION, text_color=P["texto_sec"],
+            anchor="w", justify="left", wraplength=415
+        ).pack(fill="x", padx=8, pady=(0, 5))
 
         BarraMetrica(
             c_cpu, "Carga Global de CPU", uso_cpu, f"{uso_cpu:.1f}%", warn=70, err=90
@@ -471,7 +516,7 @@ class DashboardMixin:
 
         overline(c_cpu, "Distribución por Hilo Lógico").pack(anchor="w", padx=12)
         scroll_cores = ctk.CTkScrollableFrame(
-            c_cpu, fg_color=P["surface"], corner_radius=8, height=150
+            c_cpu, fg_color=P["surface"], corner_radius=8, height=110
         )
         scroll_cores.pack(fill="both", expand=True, padx=12, pady=(4, 10))
         scroll_cores.grid_columnconfigure(0, weight=1)
@@ -532,18 +577,35 @@ class DashboardMixin:
             tipo="ok"
         ).pack(side="right")
 
-        ctk.CTkLabel(
-            c_ram,
-            text=f"Total: {hw.get('ram_total_mb', '?')}   ·   Disponible: {hw.get('ram_disponible_mb', '?')}",
-            font=F_H3, text_color=P["texto"], anchor="w"
-        ).pack(fill="x", padx=12, pady=(0, 4))
+        ram_grid = ctk.CTkFrame(c_ram, fg_color="transparent")
+        ram_grid.pack(fill="x", padx=12, pady=(2, 6))
+        for col in range(3):
+            ram_grid.grid_columnconfigure(col, weight=1, uniform="ram_cell")
 
-        ctk.CTkLabel(
-            c_ram,
-            text=f"Ranuras DIMM ocupadas: {hw.get('ram_ranuras_ocupadas', '?')}   ·   "
-                 f"Canal dual activo: {'Sí' if (hw.get('ram_ranuras_ocupadas') or 0) >= 2 else 'Simple'}",
-            font=F_SMALL, text_color=P["texto_sec"], anchor="w"
-        ).pack(fill="x", padx=12, pady=(0, 6))
+        def _celda_ram(col, label, valor, color_val=P["texto"]):
+            cell = ctk.CTkFrame(
+                ram_grid, fg_color=P["surface"], corner_radius=7,
+                border_width=1, border_color=P["borde"]
+            )
+            cell.grid(
+                row=0, column=col,
+                padx=(0 if col == 0 else 2, 0 if col == 2 else 2),
+                sticky="nsew"
+            )
+            overline(cell, label).pack(anchor="w", padx=8, pady=(4, 0))
+            ctk.CTkLabel(
+                cell, text=str(valor), font=("Segoe UI Semibold", 11),
+                text_color=color_val, anchor="w"
+            ).pack(fill="x", padx=8, pady=(0, 4))
+
+        es_dual = (hw.get("ram_ranuras_ocupadas") or 0) >= 2
+        _celda_ram(0, "CAPACIDAD TOTAL", hw.get("ram_total_mb", "?"), P["texto"])
+        _celda_ram(1, "DISPONIBLE", hw.get("ram_disponible_mb", "?"), P["primario"])
+        _celda_ram(
+            2, "MODO DE CANAL",
+            f"{hw.get('ram_canal_modo', 'Dual-Channel' if es_dual else 'Single-Channel')} ({hw.get('ram_ranuras_ocupadas', '?')} slot)",
+            P["primario"] if es_dual else P["ambar"],
+        )
 
         uso_ram = self._num(hw.get("ram_uso_pct", 0))
         BarraMetrica(
