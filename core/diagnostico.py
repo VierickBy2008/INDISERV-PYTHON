@@ -379,7 +379,7 @@ def _num(valor, defecto: float = 0.0) -> float:
 
 
 class EvaluadorTelemetria:
-    """Convierte la telemetría profunda estilo CPU-Z en evidencias específicas asociadas a códigos."""
+    """Convierte la telemetría profunda de hardware y silicio en evidencias específicas asociadas a códigos."""
 
     @staticmethod
     def evaluar(hw: dict | None) -> list[dict]:
@@ -524,7 +524,7 @@ class EvaluadorTelemetria:
 
     @staticmethod
     def generar_ficha_cpuz_texto(hw: dict | None) -> str:
-        """Genera un bloque técnico conciso estilo CPU-Z para enriquecer cada dictamen."""
+        """Genera un bloque técnico conciso de perfil de hardware para enriquecer cada dictamen."""
         if not hw:
             return ""
         isa = ", ".join(hw.get("cpu_isa_flags") or []) or "N/D"
@@ -550,7 +550,7 @@ class EvaluadorTelemetria:
 
         return (
             "════════════════════════════════════════════════════════════════════\n"
-            "PERFIL TÉCNICO CPU-Z VERIFICADO EN ESTE EQUIPO:\n"
+            "PERFIL TÉCNICO DE HARDWARE VERIFICADO EN ESTE EQUIPO:\n"
             f"  CPU / Codename  : {hw.get('nombre_cpu', '?')}  [{hw.get('cpu_codename', 'N/D')}]\n"
             f"  Socket / Proceso: {hw.get('cpu_socket', 'N/D')}  ·  Tech: {hw.get('cpu_tecnologia_nm', 'N/D')}  ·  Max TDP: {hw.get('cpu_tdp_max_w', 'N/D')}\n"
             f"  Relojes / Vcore : {hw.get('frecuencia_actual_mhz', '?')} MHz ({hw.get('cpu_multiplicador', 'N/D')})  ·  Bus {hw.get('cpu_bus_mhz', 100)} MHz  ·  Vcore {hw.get('cpu_voltaje_v', 'N/D')}\n"

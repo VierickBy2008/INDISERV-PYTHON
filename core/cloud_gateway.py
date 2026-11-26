@@ -232,6 +232,29 @@ class CloudGateway:
         )
 
     @staticmethod
+    def listar_dispositivos_confiables(session_token: str, device_hash: str) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "devices_list",
+                "session_token": session_token,
+                "device_hash": device_hash,
+            }
+        )
+
+    @staticmethod
+    def revocar_dispositivo_confiable(
+        session_token: str, device_hash: str, device_id: str
+    ) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "device_revoke",
+                "session_token": session_token,
+                "device_hash": device_hash,
+                "device_id": str(device_id or "").strip(),
+            }
+        )
+
+    @staticmethod
     def iniciar_cambio_password(
         session_token: str,
         device_hash: str,

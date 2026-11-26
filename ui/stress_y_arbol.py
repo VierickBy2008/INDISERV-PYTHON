@@ -483,7 +483,7 @@ class StressYArbolMixin:
                 text_color=P["texto"], anchor="w", justify="left", wraplength=830
             ).pack(fill="x", padx=14, pady=(2, 10))
 
-            overline(cuerpo, "Guía de Solución Técnica y Perfil CPU-Z Verificado", color=P["cian"]).pack(
+            overline(cuerpo, "Guía de Solución Técnica y Perfil de Hardware Verificado", color=P["cian"]).pack(
                 anchor="w", padx=18, pady=(4, 2)
             )
 

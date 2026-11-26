@@ -222,7 +222,7 @@ class DashboardMixin:
             lbl.configure(image=None, text=iniciales, fg_color=P["card_alt"], text_color=P["cian"])
 
     def _guardar_escaneo_manual(self):
-        """Guarda manualmente un ticket del perfil actual CPU-Z en Supabase solo si el usuario lo pide."""
+        """Guarda manualmente un ticket del perfil actual de hardware en Supabase solo si el usuario lo pide."""
         hw = self.hardware_detectado or {}
         if not self.dni_usuario_activo:
             toast(self, "Inicie sesión con su cuenta para guardar tickets en la nube.", tipo="warn")
@@ -230,8 +230,8 @@ class DashboardMixin:
         score = calcular_health_score(hw)
         ficha = EvaluadorTelemetria.generar_ficha_cpuz_texto(hw)
         t_id = self._registrar_evento_nube(
-            tipo_evento="Escaneo CPU-Z Manual",
-            categoria="Perfil Técnico CPU-Z",
+            tipo_evento="Escaneo Profundo Manual",
+            categoria="Perfil Técnico de Hardware",
             subcategoria=f"{hw.get('nombre_cpu', 'CPU')} · {hw.get('so', 'OS')} · Salud {score}/100",
             solucion=ficha or "Escaneo técnico guardado bajo demanda por el operador.",
             prefijo_evento="SCAN",
@@ -240,7 +240,7 @@ class DashboardMixin:
             toast(self, f"Ticket guardado en tu historial privado: {t_id}", tipo="ok")
 
     def _reescanear_rapido(self):
-        toast(self, "Actualizando telemetría CPU-Z del equipo en segundo plano…", tipo="info", duracion_ms=1800)
+        toast(self, "Actualizando telemetría de hardware del equipo en segundo plano…", tipo="info", duracion_ms=1800)
 
         def _bg():
             try:
@@ -428,6 +428,7 @@ class DashboardMixin:
         cont.grid_columnconfigure(1, weight=1, uniform="cr")
         cont.grid_rowconfigure(0, weight=1)
 
+        # ── COLUMNA IZQUIERDA: CPU CON SCROLL COMPLETO Y FLUIDO ───────────────
         c_cpu = tarjeta(cont)
         c_cpu.grid(row=0, column=0, padx=(0, 5), sticky="nsew")
 
@@ -442,16 +443,19 @@ class DashboardMixin:
 
         ctk.CTkLabel(
             c_cpu, text=str(hw.get("nombre_cpu", "Procesador no identificado")),
-            font=F_H3, text_color=P["texto"], anchor="w", wraplength=410
+            font=F_H3, text_color=P["texto"], anchor="w", wraplength=420
         ).pack(fill="x", padx=12, pady=(0, 4))
 
-        # Panel estructurado estilo CPU-Z (cuadrícula de especificaciones + cachés + ISA)
-        cpuz_grid = ctk.CTkFrame(c_cpu, fg_color="transparent")
-        cpuz_grid.pack(fill="x", padx=12, pady=(0, 6))
-        for col in range(4):
-            cpuz_grid.grid_columnconfigure(col, weight=1, uniform="cpuz_cell")
+        body_cpu = ctk.CTkScrollableFrame(c_cpu, fg_color="transparent", corner_radius=0)
+        body_cpu.pack(fill="both", expand=True, padx=6, pady=(0, 8))
 
-        def _celda_cpuz(parent, row, col, label, valor, color_val=P["texto"], colspan=1):
+        # Panel estructurado de Telemetría de Silicio (cuadrícula + cachés + ISA)
+        spec_grid = ctk.CTkFrame(body_cpu, fg_color="transparent")
+        spec_grid.pack(fill="x", padx=6, pady=(2, 8))
+        for col in range(4):
+            spec_grid.grid_columnconfigure(col, weight=1, uniform="spec_cell")
+
+        def _celda_silicio(parent, row, col, label, valor, color_val=P["texto"], colspan=1):
             cell = ctk.CTkFrame(
                 parent, fg_color=P["surface"], corner_radius=7,
                 border_width=1, border_color=P["borde"]
@@ -467,10 +471,10 @@ class DashboardMixin:
                 text_color=color_val, anchor="w"
             ).pack(fill="x", padx=8, pady=(0, 4))
 
-        _celda_cpuz(cpuz_grid, 0, 0, "CODE NAME", hw.get("cpu_codename", "N/D"), P["cian"], colspan=2)
-        _celda_cpuz(cpuz_grid, 0, 2, "SOCKET", hw.get("cpu_socket", "N/D"), P["texto"])
-        _celda_cpuz(
-            cpuz_grid, 0, 3, "TECH · TDP",
+        _celda_silicio(spec_grid, 0, 0, "CODE NAME", hw.get("cpu_codename", "N/D"), P["cian"], colspan=2)
+        _celda_silicio(spec_grid, 0, 2, "SOCKET", hw.get("cpu_socket", "N/D"), P["texto"])
+        _celda_silicio(
+            spec_grid, 0, 3, "TECH · TDP",
             f"{hw.get('cpu_tecnologia_nm', '?')} · {hw.get('cpu_tdp_max_w', '?')}",
             P["primario"],
         )
@@ -478,70 +482,69 @@ class DashboardMixin:
         f_actual_mhz = hw.get("frecuencia_actual_mhz")
         reloj_txt = f"{float(f_actual_mhz):.0f} MHz" if isinstance(f_actual_mhz, (int, float)) and f_actual_mhz > 0 else f"{hw.get('frecuencia_actual_ghz', '?')} GHz"
         bus_val = self._num(hw.get("cpu_bus_mhz"), 100.0)
-        _celda_cpuz(cpuz_grid, 1, 0, "RELOJ ACTUAL", reloj_txt, P["cian"])
-        _celda_cpuz(cpuz_grid, 1, 1, "MULTIPLICADOR", hw.get("cpu_multiplicador", "N/D"), P["texto"])
-        _celda_cpuz(cpuz_grid, 1, 2, "BUS · VCORE", f"{bus_val:.1f} MHz · {hw.get('cpu_voltaje_v', 'N/D')}", P["ambar"])
-        _celda_cpuz(
-            cpuz_grid, 1, 3, "FAM / MOD / STEP",
+        _celda_silicio(spec_grid, 1, 0, "RELOJ ACTUAL", reloj_txt, P["cian"])
+        _celda_silicio(spec_grid, 1, 1, "MULTIPLICADOR", hw.get("cpu_multiplicador", "N/D"), P["texto"])
+        _celda_silicio(spec_grid, 1, 2, "BUS · VCORE", f"{bus_val:.1f} MHz · {hw.get('cpu_voltaje_v', 'N/D')}", P["ambar"])
+        _celda_silicio(
+            spec_grid, 1, 3, "FAM / MOD / STEP",
             f"{hw.get('cpu_family', '?')} / {hw.get('cpu_model', '?')} / {hw.get('cpu_stepping', '?')}",
             P["texto_sec"],
         )
 
-        _celda_cpuz(
-            cpuz_grid, 2, 0, "CACHÉS DEL SILICIO (L1 / L2 / L3)",
+        _celda_silicio(
+            spec_grid, 2, 0, "CACHÉS DEL SILICIO (L1 / L2 / L3)",
             f"L1: {hw.get('cpu_l1_cache', 'N/D')}    |    L2: {hw.get('cpu_l2_cache', 'N/D')}    |    L3: {hw.get('cpu_l3_cache', 'N/D')}",
             P["texto"], colspan=3,
         )
         virt_raw = hw.get("cpu_virtualizacion")
         virt_txt = "✔ Activa" if virt_raw is True else ("✖ Inactiva" if virt_raw is False else "N/D")
         virt_col = P["primario"] if virt_raw is True else (P["ambar"] if virt_raw is False else P["texto_dim"])
-        _celda_cpuz(cpuz_grid, 2, 3, "VT-x / AMD-V", virt_txt, virt_col)
+        _celda_silicio(spec_grid, 2, 3, "VT-x / AMD-V", virt_txt, virt_col)
 
         isa_lista = hw.get("cpu_isa_flags") or []
         isa_str = " · ".join(isa_lista) if isa_lista else "N/D"
         isa_bar = ctk.CTkFrame(
-            cpuz_grid, fg_color=P["surface"], corner_radius=7,
+            spec_grid, fg_color=P["surface"], corner_radius=7,
             border_width=1, border_color=P["borde"]
         )
         isa_bar.grid(row=3, column=0, columnspan=4, pady=(2, 0), sticky="ew")
         overline(isa_bar, "INSTRUCCIONES SOPORTADAS (ISA)", color=P["cian"]).pack(anchor="w", padx=8, pady=(4, 0))
         ctk.CTkLabel(
             isa_bar, text=isa_str, font=F_CAPTION, text_color=P["texto_sec"],
-            anchor="w", justify="left", wraplength=415
+            anchor="w", justify="left", wraplength=405
         ).pack(fill="x", padx=8, pady=(0, 5))
 
         BarraMetrica(
-            c_cpu, "Carga Global de CPU", uso_cpu, f"{uso_cpu:.1f}%", warn=70, err=90
-        ).pack(fill="x", padx=12, pady=(0, 6))
+            body_cpu, "Carga Global de CPU", uso_cpu, f"{uso_cpu:.1f}%", warn=70, err=90
+        ).pack(fill="x", padx=6, pady=(2, 8))
 
-        overline(c_cpu, "Distribución por Hilo Lógico").pack(anchor="w", padx=12)
-        scroll_cores = ctk.CTkScrollableFrame(
-            c_cpu, fg_color=P["surface"], corner_radius=8, height=110
+        overline(body_cpu, "Distribución por Hilo Lógico", color=P["cian"]).pack(anchor="w", padx=6, pady=(2, 4))
+        box_cores = ctk.CTkFrame(
+            body_cpu, fg_color=P["surface"], corner_radius=8,
+            border_width=1, border_color=P["borde"]
         )
-        scroll_cores.pack(fill="both", expand=True, padx=12, pady=(4, 10))
-        scroll_cores.grid_columnconfigure(0, weight=1)
-        scroll_cores.grid_columnconfigure(1, weight=1)
+        box_cores.pack(fill="x", padx=6, pady=(0, 6))
 
         usos = [float(p or 0.0) for p in (hw.get("uso_por_nucleo", []) or [])]
         filas_cores = max(1, (len(usos) + 1) // 2)
-        alto_canvas = max(120, filas_cores * 32 + 12)
+        alto_canvas = max(96, filas_cores * 34 + 16)
         canvas_cores = tk.Canvas(
-            scroll_cores, height=alto_canvas, bg=P["surface"], highlightthickness=0, bd=0
+            box_cores, height=alto_canvas, bg=P["surface"], highlightthickness=0, bd=0
         )
-        canvas_cores.grid(row=0, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
+        canvas_cores.pack(fill="x", padx=6, pady=6)
 
         def _dibujar_cores(event=None):
             w = max(320, event.width if event else canvas_cores.winfo_width())
             if w <= 1:
                 w = 380
             canvas_cores.delete("all")
-            pad_x, gap_x, row_h = 8, 16, 32
+            pad_x, gap_x, row_h = 8, 16, 34
             col_w = max(110, (w - 2 * pad_x - gap_x) / 2.0)
             for idx, pct in enumerate(usos):
                 col = idx % 2
                 row = idx // 2
                 x0 = pad_x + col * (col_w + gap_x)
-                y0 = 6 + row * row_h
+                y0 = 8 + row * row_h
                 pct_c = max(0.0, min(100.0, pct))
                 fill_col = color_por_umbral(pct_c, warn=75, err=92)
                 canvas_cores.create_text(
@@ -552,7 +555,7 @@ class DashboardMixin:
                     x0 + col_w, y0, text=f"{pct_c:.0f}%", anchor="ne",
                     fill=P["texto"], font=F_CAPTION
                 )
-                by = y0 + 16
+                by = y0 + 17
                 canvas_cores.create_rectangle(
                     x0, by, x0 + col_w, by + 6, fill=P["card_alt"], outline=""
                 )
@@ -565,6 +568,7 @@ class DashboardMixin:
         canvas_cores.bind("<Configure>", _dibujar_cores)
         _dibujar_cores()
 
+        # ── COLUMNA DERECHA: RAM CON SCROLL COMPLETO Y FLUIDO ─────────────────
         c_ram = tarjeta(cont)
         c_ram.grid(row=0, column=1, padx=(5, 0), sticky="nsew")
 
@@ -577,8 +581,11 @@ class DashboardMixin:
             tipo="ok"
         ).pack(side="right")
 
-        ram_grid = ctk.CTkFrame(c_ram, fg_color="transparent")
-        ram_grid.pack(fill="x", padx=12, pady=(2, 6))
+        body_ram = ctk.CTkScrollableFrame(c_ram, fg_color="transparent", corner_radius=0)
+        body_ram.pack(fill="both", expand=True, padx=6, pady=(4, 8))
+
+        ram_grid = ctk.CTkFrame(body_ram, fg_color="transparent")
+        ram_grid.pack(fill="x", padx=6, pady=(2, 8))
         for col in range(3):
             ram_grid.grid_columnconfigure(col, weight=1, uniform="ram_cell")
 
@@ -609,27 +616,28 @@ class DashboardMixin:
 
         uso_ram = self._num(hw.get("ram_uso_pct", 0))
         BarraMetrica(
-            c_ram, "Uso de Memoria Física", uso_ram, f"{uso_ram:.1f}%", warn=75, err=90
-        ).pack(fill="x", padx=12, pady=(0, 8))
+            body_ram, "Uso de Memoria Física", uso_ram, f"{uso_ram:.1f}%", warn=75, err=90
+        ).pack(fill="x", padx=6, pady=(0, 10))
 
-        overline(c_ram, "Módulos Físicos Detectados (SMBIOS)").pack(anchor="w", padx=12)
-        scroll_ram = ctk.CTkScrollableFrame(
-            c_ram, fg_color=P["surface"], corner_radius=8, height=210
+        overline(body_ram, "Módulos Físicos Detectados (SMBIOS)", color=P["primario"]).pack(anchor="w", padx=6, pady=(2, 4))
+        box_ram = ctk.CTkFrame(
+            body_ram, fg_color=P["surface"], corner_radius=8,
+            border_width=1, border_color=P["borde"]
         )
-        scroll_ram.pack(fill="both", expand=True, padx=12, pady=(4, 10))
+        box_ram.pack(fill="x", padx=6, pady=(0, 6))
 
         modulos = hw.get("ram_modulos", []) or []
         if not modulos:
             ctk.CTkLabel(
-                scroll_ram, text="Sin detalle individual de slots vía WMI.",
+                box_ram, text="Sin detalle individual de slots vía WMI.",
                 font=F_SMALL, text_color=P["texto_dim"]
-            ).pack(anchor="w", padx=8, pady=8)
+            ).pack(anchor="w", padx=10, pady=10)
         for i, m in enumerate(modulos, 1):
             item = ctk.CTkFrame(
-                scroll_ram, fg_color=P["card_alt"], corner_radius=8,
+                box_ram, fg_color=P["card_alt"], corner_radius=8,
                 border_width=1, border_color=P["borde"]
             )
-            item.pack(fill="x", padx=4, pady=4)
+            item.pack(fill="x", padx=6, pady=5)
             f1 = ctk.CTkFrame(item, fg_color="transparent")
             f1.pack(fill="x", padx=10, pady=(6, 2))
             ctk.CTkLabel(

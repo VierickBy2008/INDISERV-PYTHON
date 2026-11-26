@@ -313,7 +313,7 @@ class ModalesMixin:
 
         tabs = ctk.CTkTabview(card, **estilo_tabview())
         tabs.pack(fill="both", expand=True, padx=14, pady=(2, 12))
-        for tname in ("Perfil y Foto", "Cambiar Contraseña", "Eliminar Cuenta"):
+        for tname in ("Perfil y Foto", "Equipos Confiables", "Cambiar Contraseña", "Eliminar Cuenta"):
             tabs.add(tname)
 
         # ── TAB 1: PERFIL Y FOTO ───────────────────────────────────────────────
@@ -476,7 +476,163 @@ class ModalesMixin:
             font=F_CAPTION, text_color=P["texto_sec"], wraplength=600, justify="left", anchor="w"
         ).pack(fill="x", padx=14, pady=10)
 
-        # ── TAB 2: CAMBIAR CONTRASEÑA (CON DOBLE FACTOR OTP) ──────────────────
+        # ── TAB 2: EQUIPOS CONFIABLES (VERIFICAR Y REVOCAR) ───────────────────
+        t_dev = tabs.tab("Equipos Confiables")
+        dev_top = ctk.CTkFrame(t_dev, fg_color="transparent")
+        dev_top.pack(fill="x", padx=12, pady=(8, 4))
+        ctk.CTkLabel(
+            dev_top,
+            text="Administra las PCs, teléfonos y navegadores verificados con tu cuenta. "
+                 "Al quitar un equipo se cierran sus sesiones activas y volverá a pedir OTP.",
+            font=F_CAPTION, text_color=P["texto_sec"], wraplength=500, justify="left", anchor="w"
+        ).pack(side="left", fill="x", expand=True)
+
+        lbl_dev_msg = ctk.CTkLabel(t_dev, text="", font=F_SMALL, text_color=P["texto_sec"], anchor="w")
+        lbl_dev_msg.pack(fill="x", padx=14, pady=(0, 4))
+
+        scroll_devs = ctk.CTkScrollableFrame(t_dev, fg_color=P["bg"], corner_radius=10)
+        scroll_devs.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+
+        def _render_devices(devices: list[dict]):
+            if not v.winfo_exists():
+                return
+            for w in scroll_devs.winfo_children():
+                w.destroy()
+            if not devices:
+                ctk.CTkLabel(
+                    scroll_devs,
+                    text="No hay equipos confiables registrados actualmente.",
+                    font=F_SMALL, text_color=P["texto_sec"]
+                ).pack(pady=28)
+                return
+
+            for d in devices:
+                d_id = str(d.get("id") or "")
+                d_label = str(d.get("device_label") or "Dispositivo")
+                plat = str(d.get("plataforma") or "desktop").lower()
+                icono = "📱" if plat == "android" else ("🌐" if plat == "web" else "🖥️")
+                es_actual = bool(d.get("is_current"))
+                sesion_act = bool(d.get("sesion_activa"))
+                uso_raw = str(d.get("ultimo_uso") or "")
+                uso_fmt = uso_raw[:16].replace("T", " ") if len(uso_raw) >= 16 else "Reciente"
+
+                fila = ctk.CTkFrame(
+                    scroll_devs, fg_color=P["surface"], corner_radius=10,
+                    border_width=1, border_color=P["cian"] if es_actual else P["borde"]
+                )
+                fila.pack(fill="x", padx=6, pady=4)
+
+                col_info = ctk.CTkFrame(fila, fg_color="transparent")
+                col_info.pack(side="left", fill="x", expand=True, padx=12, pady=8)
+
+                hdr_d = ctk.CTkFrame(col_info, fg_color="transparent")
+                hdr_d.pack(fill="x")
+                ctk.CTkLabel(
+                    hdr_d, text=f"{icono}  {d_label}",
+                    font=F_H3, text_color=P["texto"], anchor="w"
+                ).pack(side="left")
+                if es_actual:
+                    Badge(hdr_d, "ESTE EQUIPO", tipo="ok").pack(side="left", padx=(8, 0))
+                elif sesion_act:
+                    Badge(hdr_d, "SESIÓN ACTIVA", tipo="info").pack(side="left", padx=(8, 0))
+
+                ctk.CTkLabel(
+                    col_info,
+                    text=f"Plataforma: {plat.upper()}  ·  Último acceso (UTC): {uso_fmt}",
+                    font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
+                ).pack(fill="x", pady=(2, 0))
+
+                def _revocar(dev_id=d_id, dev_lbl=d_label):
+                    lbl_dev_msg.configure(text=f"Revocando acceso de {dev_lbl}…", text_color=P["texto_sec"])
+
+                    def _bg_rev():
+                        res = CloudGateway.revocar_dispositivo_confiable(tok, self._device_hash, dev_id)
+
+                        def _apply_rev():
+                            if not self.winfo_exists():
+                                return
+                            if res.get("session_expired"):
+                                lbl_dev_msg.configure(text="⚠ Sesión expirada.", text_color=COLOR_ERR)
+                                return
+                            if res.get("ok"):
+                                if res.get("revoked_current"):
+                                    clear_session_token()
+                                    self._session_token = None
+                                    self.dni_usuario_activo = None
+                                    self.usuario_activo_info = {}
+                                    if v.winfo_exists():
+                                        v.destroy()
+                                    self.pantalla_login()
+                                    toast(
+                                        self,
+                                        "Se revocó este equipo. Deberás verificar con OTP al volver a ingresar.",
+                                        tipo="warn",
+                                        duracion_ms=4500,
+                                    )
+                                    return
+                                if v.winfo_exists():
+                                    lbl_dev_msg.configure(
+                                        text=f"✔ Acceso revocado para {res.get('device_label', dev_lbl)}.",
+                                        text_color=COLOR_OK,
+                                    )
+                                    _cargar_devices_bg()
+                                    threading.Thread(target=_cargar_perfil_bg, daemon=True).start()
+                            else:
+                                if v.winfo_exists():
+                                    lbl_dev_msg.configure(
+                                        text=f"✖ {res.get('error') or res.get('error_conexion') or 'No se pudo revocar.'}",
+                                        text_color=COLOR_ERR,
+                                    )
+
+                        self._post_ui(_apply_rev)
+
+                    threading.Thread(target=_bg_rev, daemon=True).start()
+
+                boton(
+                    fila, "🚫 Quitar acceso", _revocar,
+                    variante="peligro" if not es_actual else "ambar",
+                    width=132, height=30, font=F_CAPTION
+                ).pack(side="right", padx=10, pady=10)
+
+        def _cargar_devices_bg():
+            if v.winfo_exists():
+                for w in scroll_devs.winfo_children():
+                    w.destroy()
+                ctk.CTkLabel(
+                    scroll_devs, text="Consultando equipos confiables en Supabase…",
+                    font=F_SMALL, text_color=P["texto_sec"]
+                ).pack(pady=24)
+
+            def _bg():
+                res = CloudGateway.listar_dispositivos_confiables(tok, self._device_hash)
+
+                def _apply():
+                    if not v.winfo_exists():
+                        return
+                    if res.get("ok"):
+                        _render_devices(res.get("devices") or [])
+                    elif res.get("session_expired"):
+                        lbl_dev_msg.configure(text="⚠ Tu sesión de 15 min expiró.", text_color=COLOR_ERR)
+                    else:
+                        for w in scroll_devs.winfo_children():
+                            w.destroy()
+                        ctk.CTkLabel(
+                            scroll_devs,
+                            text=f"⚠ {res.get('error') or res.get('error_conexion') or 'No se pudieron cargar los equipos.'}",
+                            font=F_SMALL, text_color=COLOR_ERR, wraplength=540
+                        ).pack(pady=24)
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        boton(
+            dev_top, "⟳ Actualizar", _cargar_devices_bg,
+            variante="util", width=104, height=28, font=F_CAPTION
+        ).pack(side="right", padx=(8, 0))
+        _cargar_devices_bg()
+
+        # ── TAB 3: CAMBIAR CONTRASEÑA (CON DOBLE FACTOR OTP) ──────────────────
         t_pwd = tabs.tab("Cambiar Contraseña")
         pwd_state = {"challenge_id": "", "busy": False}
 
