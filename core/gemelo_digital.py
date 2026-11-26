@@ -28,9 +28,10 @@ def abrir_gemelo_digital(id_ticket: str, root_widget=None, share_token: str | No
 
     enlace_completo = f"{WEB_VIEWER_URL}/?ticket={ticket_sanitizado}"
     if st_clean:
-        enlace_completo += f"&st={st_clean}"
+        # Hash fragment (#st=...) evita que el share_token viaje al servidor en logs HTTP/Referer
+        enlace_completo += f"#st={st_clean}"
 
-    print(f"\n[Gemelo Digital] Enlace Público Generado: {enlace_completo}")
+    print(f"\n[Gemelo Digital] Enlace Seguro Generado para ticket: {ticket_sanitizado}")
 
     try:
         webbrowser.open(enlace_completo)

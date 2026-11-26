@@ -20,7 +20,7 @@ from core.cloud_gateway import CloudGateway
 from core.diagnostico import EvaluadorTelemetria, obtener_dictamen
 from core.gemelo_digital import abrir_gemelo_digital
 from core.legal import POLITICA_PRIVACIDAD_TEXTO, VERSION_POLITICA
-from core.security import clear_session_token
+from core.security import clear_session_token, generate_secure_ticket_id
 from core.ui_theme import (
     P,
     F_H1, F_H2, F_H3, F_SMALL, F_CAPTION,
@@ -1105,7 +1105,7 @@ class ModalesMixin:
                     ).pack(fill="x")
 
                     st_val = str(item.get("share_token") or "").strip()
-                    url_3d = f"https://indiserv-web3d.vercel.app/?ticket={t_id}" + (f"&st={st_val}" if st_val else "")
+                    url_3d = f"https://indiserv-web3d.vercel.app/?ticket={t_id}" + (f"#st={st_val}" if st_val else "")
                     boton(
                         fila, "Abrir Reporte 3D",
                         lambda u=url_3d: webbrowser.open(u),
@@ -1220,11 +1220,13 @@ class ModalesMixin:
             lambda: threading.Thread(target=_cargar_en_hilo, daemon=True).start(),
             variante="neutro", width=130, height=32, font=F_SMALL
         ).pack(side="left", padx=6)
-        boton(
-            fila_b, "🍯 Alertas Honeytoken",
-            lambda: threading.Thread(target=_cargar_alertas, daemon=True).start(),
-            variante="ambar", width=175, height=32, font=F_SMALL
-        ).pack(side="left", padx=6)
+        es_admin = str((getattr(self, "usuario_activo_info", {}) or {}).get("rol") or "").lower() == "admin"
+        if es_admin:
+            boton(
+                fila_b, "🍯 Alertas Honeytoken",
+                lambda: threading.Thread(target=_cargar_alertas, daemon=True).start(),
+                variante="ambar", width=175, height=32, font=F_SMALL
+            ).pack(side="left", padx=6)
         boton(
             fila_b, "Cerrar", _cerrar_modal,
             variante="neutro", width=110, height=32, font=F_SMALL
@@ -1261,7 +1263,7 @@ class ModalesMixin:
                 lbl_estado.configure(text="⚠ Ingrese una descripción válida.", text_color=COLOR_ERR)
                 return
 
-            t_id = f"SUG-{random.randint(10000, 99999)}"
+            t_id = generate_secure_ticket_id(self.dni_usuario_activo, "SUG")
 
             ruta_sug = os.path.join(_obtener_carpeta_reportes(), "sugerencias_locales.txt")
             with open(ruta_sug, "a", encoding="utf-8") as s:

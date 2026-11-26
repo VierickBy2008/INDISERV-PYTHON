@@ -4,4 +4,5 @@ psutil>=5.9.0
 supabase>=2.0.0
 pyperclip>=1.8.0
 python-dotenv>=1.0.0
+cryptography>=42.0.0
 pyinstaller>=6.0.0

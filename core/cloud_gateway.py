@@ -130,6 +130,7 @@ class CloudGateway:
                 "correo": user.get("correo") or clean_correo,
                 "nickname": user.get("nickname") or "Operador",
                 "avatar_data": user.get("avatar_data"),
+                "rol": user.get("rol") or "operator",
             }
         return {"autenticado": False, "error": res.get("error") or "Credenciales incorrectas o cuenta inexistente."}
 

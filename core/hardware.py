@@ -105,12 +105,45 @@ def _wmi_batch_prefetch() -> dict[str, list[dict[str, Any]]]:
         return {}
 
 
+def _resolver_binario_sistema(cmd_name: str) -> str:
+    """Resuelve ejecutables nativos a rutas absolutas del SO para prevenir PATH hijacking."""
+    if not cmd_name or os.path.isabs(cmd_name):
+        return cmd_name
+    if sys.platform == "darwin":
+        candidatos = {
+            "sysctl": ("/usr/sbin/sysctl",),
+            "system_profiler": ("/usr/sbin/system_profiler",),
+            "pmset": ("/usr/bin/pmset",),
+        }.get(cmd_name, ())
+    elif sys.platform.startswith("linux"):
+        candidatos = {
+            "lscpu": ("/usr/bin/lscpu", "/bin/lscpu"),
+            "lspci": ("/usr/bin/lspci", "/usr/sbin/lspci", "/sbin/lspci"),
+            "lsblk": ("/usr/bin/lsblk", "/bin/lsblk"),
+            "nvidia-smi": ("/usr/bin/nvidia-smi", "/usr/local/bin/nvidia-smi"),
+        }.get(cmd_name, ())
+    elif sys.platform == "win32":
+        sys_root = os.environ.get("SystemRoot") or r"C:\Windows"
+        candidatos = {
+            "nvidia-smi": (os.path.join(sys_root, "System32", "nvidia-smi.exe"),),
+        }.get(cmd_name, ())
+    else:
+        candidatos = ()
+    for ruta in candidatos:
+        if os.path.isfile(ruta):
+            return ruta
+    return cmd_name
+
+
 def _run_cmd(args: list[str], timeout: int = 5) -> str:
-    """Ejecuta un comando nativo del SO y devuelve stdout limpio o '' si falla."""
+    """Ejecuta un comando nativo del SO con ruta absoluta verificada y devuelve stdout limpio o ''."""
+    if not args:
+        return ""
+    safe_args = [_resolver_binario_sistema(args[0]), *args[1:]]
     try:
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
         res = subprocess.run(
-            args,
+            safe_args,
             capture_output=True,
             text=True,
             encoding="utf-8",

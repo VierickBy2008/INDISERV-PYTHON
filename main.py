@@ -194,6 +194,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                         "correo": user.get("correo"),
                         "nickname": user.get("nickname") or "Operador",
                         "avatar_data": user.get("avatar_data"),
+                        "rol": user.get("rol") or "operator",
                     }
                     self._mostrar_splash_carga()
                 else:
@@ -941,6 +942,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                         "correo": auth_res.get("correo") or correo,
                         "nickname": auth_res.get("nickname") or "Operador",
                         "avatar_data": auth_res.get("avatar_data"),
+                        "rol": auth_res.get("rol") or "operator",
                     }
                     self._mostrar_splash_carga()
                 else:
@@ -1068,6 +1070,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                             "correo": user.get("correo"),
                             "nickname": user.get("nickname") or "Operador",
                             "avatar_data": user.get("avatar_data"),
+                            "rol": user.get("rol") or "operator",
                         }
                         self._mostrar_splash_carga()
                         toast(

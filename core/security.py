@@ -282,32 +282,233 @@ def get_device_fingerprint() -> tuple[str, str]:
     return device_hash, device_label
 
 
+def _posix_aesgcm_encrypt(raw_bytes: bytes) -> dict | None:
+    """Cifra la sesión con AES-256-GCM derivado de machine-id + UID + sal aleatoria en POSIX."""
+    try:
+        import base64
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.hashes import SHA256
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+        salt = secrets.token_bytes(16)
+        nonce = secrets.token_bytes(12)
+        uid = os.getuid() if hasattr(os, "getuid") else 0
+        ikm = f"INDISERV_POSIX_SESS_V1::{_read_machine_guid()}::{uid}".encode("utf-8")
+        key = PBKDF2HMAC(algorithm=SHA256(), length=32, salt=salt, iterations=200_000).derive(ikm)
+        ct = AESGCM(key).encrypt(nonce, raw_bytes, b"indiserv-session-v1")
+        return {
+            "aesgcm_v1": {
+                "salt": base64.b64encode(salt).decode("ascii"),
+                "nonce": base64.b64encode(nonce).decode("ascii"),
+                "ct": base64.b64encode(ct).decode("ascii"),
+            }
+        }
+    except Exception:
+        return None
+
+
+def _posix_aesgcm_decrypt(box: dict) -> bytes | None:
+    """Descifra una sesión cifrada con _posix_aesgcm_encrypt en el mismo host y usuario."""
+    try:
+        import base64
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.hashes import SHA256
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+        salt = base64.b64decode(str(box["salt"]))
+        nonce = base64.b64decode(str(box["nonce"]))
+        ct = base64.b64decode(str(box["ct"]))
+        uid = os.getuid() if hasattr(os, "getuid") else 0
+        ikm = f"INDISERV_POSIX_SESS_V1::{_read_machine_guid()}::{uid}".encode("utf-8")
+        key = PBKDF2HMAC(algorithm=SHA256(), length=32, salt=salt, iterations=200_000).derive(ikm)
+        return AESGCM(key).decrypt(nonce, ct, b"indiserv-session-v1")
+    except Exception:
+        return None
+
+
+def _os_keyring_save(raw_str: str) -> bool:
+    """Guarda el secreto de sesión en macOS Keychain o Linux Secret Service sin exponerlo en argv."""
+    import subprocess
+
+    if sys.platform == "darwin" and os.path.isfile("/usr/bin/security"):
+        try:
+            # 'security -i' lee comandos desde stdin (nunca aparece la contraseña en ps/argv)
+            escaped = raw_str.replace("\\", "\\\\").replace('"', '\\"')
+            cmd_line = (
+                'add-generic-password -U -a "indiserv_session" '
+                f'-s "com.indiserv.analytica.session" -w "{escaped}"\n'
+            )
+            res = subprocess.run(
+                ["/usr/bin/security", "-i"],
+                input=cmd_line,
+                text=True,
+                capture_output=True,
+                timeout=4,
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
+    if sys.platform.startswith("linux") and os.path.isfile("/usr/bin/secret-tool"):
+        try:
+            res = subprocess.run(
+                [
+                    "/usr/bin/secret-tool",
+                    "store",
+                    "--label=IndiServ Analytica Session",
+                    "service",
+                    "com.indiserv.analytica.session",
+                    "account",
+                    "indiserv_session",
+                ],
+                input=raw_str,
+                text=True,
+                capture_output=True,
+                timeout=4,
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
+    return False
+
+
+def _os_keyring_load() -> str | None:
+    """Recupera el secreto de sesión desde macOS Keychain o Linux Secret Service."""
+    import subprocess
+
+    if sys.platform == "darwin" and os.path.isfile("/usr/bin/security"):
+        try:
+            res = subprocess.run(
+                [
+                    "/usr/bin/security",
+                    "find-generic-password",
+                    "-a",
+                    "indiserv_session",
+                    "-s",
+                    "com.indiserv.analytica.session",
+                    "-w",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=4,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception:
+            return None
+    if sys.platform.startswith("linux") and os.path.isfile("/usr/bin/secret-tool"):
+        try:
+            res = subprocess.run(
+                [
+                    "/usr/bin/secret-tool",
+                    "lookup",
+                    "service",
+                    "com.indiserv.analytica.session",
+                    "account",
+                    "indiserv_session",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=4,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception:
+            return None
+    return None
+
+
+def _os_keyring_delete() -> None:
+    """Elimina el secreto de sesión del llavero nativo del SO en macOS/Linux."""
+    import subprocess
+
+    if sys.platform == "darwin" and os.path.isfile("/usr/bin/security"):
+        try:
+            subprocess.run(
+                [
+                    "/usr/bin/security",
+                    "delete-generic-password",
+                    "-a",
+                    "indiserv_session",
+                    "-s",
+                    "com.indiserv.analytica.session",
+                ],
+                capture_output=True,
+                timeout=4,
+            )
+        except Exception:
+            pass
+    elif sys.platform.startswith("linux") and os.path.isfile("/usr/bin/secret-tool"):
+        try:
+            subprocess.run(
+                [
+                    "/usr/bin/secret-tool",
+                    "clear",
+                    "service",
+                    "com.indiserv.analytica.session",
+                    "account",
+                    "indiserv_session",
+                ],
+                capture_output=True,
+                timeout=4,
+            )
+        except Exception:
+            pass
+
+
 def save_session_token(token: str, device_hash: str, path: str | None = None) -> None:
-    """Persiste el token opaco de sesión cifrado con Windows DPAPI (o chmod 600 en POSIX)."""
+    """Persiste el token opaco cifrado: Windows DPAPI, macOS Keychain, Linux Secret Service o AES-256-GCM."""
     import base64
 
     target = path or _SESSION_FILE_PATH
     try:
-        raw = json.dumps({"token": str(token), "device_hash": str(device_hash)}).encode("utf-8")
-        enc = _dpapi_protect(raw)
-        if enc is not None:
+        raw_str = json.dumps({"token": str(token), "device_hash": str(device_hash)})
+        raw = raw_str.encode("utf-8")
+
+        if sys.platform == "win32":
+            enc = _dpapi_protect(raw)
+            if enc is None:
+                return
             payload = {"dpapi": base64.b64encode(enc).decode("ascii")}
         else:
-            payload = {"token": str(token), "device_hash": str(device_hash)}
-        with open(target, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh)
+            if path is None and _os_keyring_save(raw_str):
+                # Limpiar archivo en disco si se guardó en el llavero nativo del SO
+                try:
+                    if os.path.exists(target):
+                        os.remove(target)
+                except Exception:
+                    pass
+                return
+            payload = _posix_aesgcm_encrypt(raw)
+            if payload is None:
+                return
+
         if os.name != "nt":
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
             os.chmod(target, 0o600)
+        else:
+            with open(target, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
     except Exception:
         pass
 
 
 def load_session_token(path: str | None = None) -> tuple[str, str] | None:
-    """Lee el token guardado (descifrando DPAPI en Windows); la vigencia de 15 min se valida en servidor."""
+    """Lee el token cifrado (DPAPI en Windows, Keychain/Secret Service o AES-256-GCM en POSIX)."""
     import base64
 
     target = path or _SESSION_FILE_PATH
     try:
+        if sys.platform != "win32" and path is None:
+            kr = _os_keyring_load()
+            if kr:
+                data = json.loads(kr)
+                tok = str(data.get("token") or "").strip()
+                dh = str(data.get("device_hash") or "").strip()
+                if tok and dh:
+                    return tok, dh
+
         if not os.path.exists(target):
             return None
         with open(target, "r", encoding="utf-8") as fh:
@@ -317,6 +518,19 @@ def load_session_token(path: str | None = None) -> tuple[str, str] | None:
             if not dec:
                 return None
             data = json.loads(dec.decode("utf-8"))
+        elif isinstance(data, dict) and isinstance(data.get("aesgcm_v1"), dict):
+            dec = _posix_aesgcm_decrypt(data["aesgcm_v1"])
+            if not dec:
+                return None
+            data = json.loads(dec.decode("utf-8"))
+        else:
+            # Rechazar archivos en texto plano heredados y limpiarlos
+            try:
+                os.remove(target)
+            except Exception:
+                pass
+            return None
+
         tok = str(data.get("token") or "").strip()
         dh = str(data.get("device_hash") or "").strip()
         if tok and dh:
@@ -327,8 +541,10 @@ def load_session_token(path: str | None = None) -> tuple[str, str] | None:
 
 
 def clear_session_token(path: str | None = None) -> None:
-    """Elimina el token local de sesión."""
+    """Elimina el token local de sesión tanto del llavero del SO como del disco."""
     target = path or _SESSION_FILE_PATH
+    if sys.platform != "win32" and path is None:
+        _os_keyring_delete()
     try:
         if os.path.exists(target):
             os.remove(target)
