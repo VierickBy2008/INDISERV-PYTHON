@@ -135,6 +135,7 @@ class CloudGateway:
                 "dni": user.get("dni") or clean_dni,
                 "correo": user.get("correo") or clean_correo,
                 "nickname": user.get("nickname") or "Operador",
+                "avatar_data": user.get("avatar_data"),
             }
         return {"autenticado": False, "error": res.get("error") or "Credenciales incorrectas o cuenta inexistente."}
 
@@ -206,6 +207,132 @@ class CloudGateway:
                 "action": "session_logout",
                 "session_token": session_token,
                 "device_hash": device_hash,
+            }
+        )
+
+    @staticmethod
+    def obtener_perfil_cuenta(session_token: str, device_hash: str) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "profile_get",
+                "session_token": session_token,
+                "device_hash": device_hash,
+            }
+        )
+
+    @staticmethod
+    def actualizar_avatar(session_token: str, device_hash: str, avatar_data: str | None) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "profile_update_avatar",
+                "session_token": session_token,
+                "device_hash": device_hash,
+                "avatar_data": avatar_data,
+            }
+        )
+
+    @staticmethod
+    def iniciar_cambio_password(
+        session_token: str,
+        device_hash: str,
+        device_label: str,
+        dni: str,
+        current_password: str,
+        new_password: str,
+    ) -> dict:
+        from core.security import hash_password
+
+        clean_dni = str(dni or "").strip()
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "password_change_init",
+                "session_token": session_token,
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "current_password_hash": hash_password(clean_dni, current_password),
+                "new_password_hash": hash_password(clean_dni, new_password),
+            }
+        )
+
+    @staticmethod
+    def verificar_cambio_password(
+        session_token: str, device_hash: str, challenge_id: str, code: str
+    ) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "password_change_verify",
+                "session_token": session_token,
+                "device_hash": device_hash,
+                "challenge_id": challenge_id,
+                "code": str(code or "").strip(),
+            }
+        )
+
+    @staticmethod
+    def iniciar_recuperacion_password(
+        dni: str, correo: str, device_hash: str, device_label: str
+    ) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "password_reset_init",
+                "dni": str(dni or "").strip(),
+                "correo": str(correo or "").strip(),
+                "device_hash": device_hash,
+                "device_label": device_label,
+            }
+        )
+
+    @staticmethod
+    def verificar_recuperacion_password(
+        dni: str, challenge_id: str, code: str, new_password: str, device_hash: str
+    ) -> dict:
+        from core.security import hash_password
+
+        clean_dni = str(dni or "").strip()
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "password_reset_verify",
+                "challenge_id": challenge_id,
+                "code": str(code or "").strip(),
+                "new_password_hash": hash_password(clean_dni, new_password),
+                "device_hash": device_hash,
+            }
+        )
+
+    @staticmethod
+    def iniciar_eliminacion_cuenta(
+        session_token: str,
+        device_hash: str,
+        device_label: str,
+        dni: str,
+        current_password: str,
+        confirm_text: str,
+    ) -> dict:
+        from core.security import hash_password
+
+        clean_dni = str(dni or "").strip()
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "account_delete_init",
+                "session_token": session_token,
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "current_password_hash": hash_password(clean_dni, current_password),
+                "confirm_text": str(confirm_text or "").strip(),
+            }
+        )
+
+    @staticmethod
+    def verificar_eliminacion_cuenta(
+        session_token: str, device_hash: str, challenge_id: str, code: str
+    ) -> dict:
+        return CloudGateway._auth_otp_post(
+            {
+                "action": "account_delete_verify",
+                "session_token": session_token,
+                "device_hash": device_hash,
+                "challenge_id": challenge_id,
+                "code": str(code or "").strip(),
             }
         )
 

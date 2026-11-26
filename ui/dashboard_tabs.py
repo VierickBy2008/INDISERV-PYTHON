@@ -59,6 +59,15 @@ class DashboardMixin:
         izq.pack(side="left", padx=14, pady=9)
         fila_tit = ctk.CTkFrame(izq, fg_color="transparent")
         fila_tit.pack(anchor="w")
+
+        self._lbl_topbar_avatar = ctk.CTkLabel(
+            fila_tit, text="", width=32, height=32, corner_radius=16,
+            fg_color=P["card_alt"], text_color=P["cian"], font=F_SMALL, cursor="hand2"
+        )
+        self._lbl_topbar_avatar.pack(side="left", padx=(0, 8))
+        self._lbl_topbar_avatar.bind("<Button-1>", lambda _e: self.modal_mi_cuenta())
+        self._refrescar_avatar_topbar()
+
         p_dot = PuntoPulso(fila_tit, color=P["primario"])
         p_dot.pack(side="left", padx=(0, 7))
         p_dot.iniciar()
@@ -73,6 +82,9 @@ class DashboardMixin:
 
         der = ctk.CTkFrame(topbar, fg_color="transparent")
         der.pack(side="right", padx=10, pady=9)
+        boton(der, "👤 Mi Cuenta", self.modal_mi_cuenta,
+              variante="util", width=102, height=32, font=F_SMALL,
+              hover_border_color=P["primario"]).pack(side="left", padx=(0, 5))
         self._btn_fullscreen = boton(
             der, self._texto_btn_fullscreen(), self.alternar_pantalla_completa,
             variante="util", width=124, height=32, font=F_SMALL
@@ -188,6 +200,24 @@ class DashboardMixin:
         fn = constructores.get(nombre)
         if fn:
             fn(tab, hw)
+
+    def _refrescar_avatar_topbar(self):
+        lbl = getattr(self, "_lbl_topbar_avatar", None)
+        if not lbl:
+            return
+        try:
+            if not lbl.winfo_exists():
+                return
+        except Exception:
+            return
+        info = getattr(self, "usuario_activo_info", {}) or {}
+        av_img = self._decodificar_avatar_ctk(info.get("avatar_data"), size=30, cache_key="topbar")
+        if av_img is not None:
+            lbl.configure(image=av_img, text="", fg_color="transparent")
+        else:
+            nick = str(info.get("nickname") or self.dni_usuario_activo or "OP").strip()
+            iniciales = nick[:2].upper()
+            lbl.configure(image=None, text=iniciales, fg_color=P["card_alt"], text_color=P["cian"])
 
     def _reescanear_rapido(self):
         toast(self, "Actualizando telemetría del equipo en segundo plano…", tipo="info", duracion_ms=1800)

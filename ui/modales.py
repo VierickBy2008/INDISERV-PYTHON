@@ -4,26 +4,33 @@ ui/modales.py — Modales flotantes (Gemelo 3D, Reporte Final, Privacidad, Flota
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import random
 import sys
 import threading
 import webbrowser
+from tkinter import filedialog
 import customtkinter as ctk
+from PIL import Image, ImageOps
 
 from core.cloud_gateway import CloudGateway
 from core.diagnostico import obtener_dictamen
 from core.gemelo_digital import abrir_gemelo_digital
 from core.legal import POLITICA_PRIVACIDAD_TEXTO, VERSION_POLITICA
+from core.security import clear_session_token
 from core.ui_theme import (
     P,
-    F_H2, F_H3, F_SMALL, F_CAPTION,
+    F_H1, F_H2, F_H3, F_SMALL, F_CAPTION,
     Badge,
     boton,
     tarjeta,
     entrada,
+    overline,
     estilo_combo,
+    estilo_tabview,
     estilo_textbox,
     estilizar_toplevel,
     toast,
@@ -31,6 +38,28 @@ from core.ui_theme import (
 
 COLOR_OK = P["primario"]
 COLOR_ERR = P["rojo"]
+
+
+def _comprimir_imagen_avatar(ruta: str) -> str:
+    """Recorta a 192×192 y comprime a WebP/JPEG (<= 60 KB) devolviendo Data URI base64."""
+    img = Image.open(ruta)
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    img = ImageOps.fit(img, (192, 192), Image.Resampling.LANCZOS)
+
+    for fmt, mime in (("WEBP", "image/webp"), ("JPEG", "image/jpeg")):
+        for q in (82, 70, 56, 44):
+            buf = io.BytesIO()
+            try:
+                img.save(buf, format=fmt, quality=q, method=4) if fmt == "WEBP" else img.save(
+                    buf, format=fmt, quality=q, optimize=True
+                )
+            except Exception:
+                break
+            raw = buf.getvalue()
+            if len(raw) <= 60_000:
+                b64 = base64.b64encode(raw).decode("ascii")
+                return f"data:{mime};base64,{b64}"
+    raise ValueError("La imagen seleccionada no pudo comprimirse por debajo de 60 KB.")
 
 
 def _obtener_carpeta_reportes() -> str:
@@ -245,6 +274,481 @@ class ModalesMixin:
             fila_btn, "Cerrar", v.destroy,
             variante="neutro", width=120, height=34, font=F_SMALL
         ).pack(side="left", padx=6)
+
+    def modal_mi_cuenta(self):
+        """Sección Mi Cuenta: foto de perfil, cambio de contraseña con OTP y eliminación total."""
+        v = ctk.CTkToplevel(self)
+        estilizar_toplevel(v, self, "Mi Cuenta y Seguridad — IndiServ Analytica", 720, 620)
+
+        card = tarjeta(v)
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        info = getattr(self, "usuario_activo_info", {}) or {}
+        dni = str(self.dni_usuario_activo or info.get("dni") or "").strip()
+        tok = getattr(self, "_session_token", None)
+
+        enc = ctk.CTkFrame(card, fg_color="transparent")
+        enc.pack(fill="x", padx=16, pady=(12, 6))
+        ctk.CTkLabel(
+            enc, text="👤 Mi Cuenta y Seguridad", font=F_H2, text_color=P["texto"]
+        ).pack(side="left")
+        Badge(enc, f"DNI {dni or 'LOCAL'}", tipo="info").pack(side="left", padx=(10, 0))
+        boton(
+            enc, "🛡️ Política v2.0", self.modal_politica_privacidad,
+            variante="util", width=122, height=28, font=F_CAPTION
+        ).pack(side="right")
+
+        if not tok or not dni:
+            ctk.CTkLabel(
+                card,
+                text="Inicie sesión con su cuenta verificada para administrar su foto de perfil, "
+                     "cambiar su contraseña o eliminar su cuenta.",
+                font=F_SMALL, text_color=P["texto_sec"], wraplength=600, justify="center"
+            ).pack(pady=40)
+            boton(card, "Cerrar", v.destroy, variante="neutro", width=120, height=34).pack()
+            return
+
+        tabs = ctk.CTkTabview(card, **estilo_tabview())
+        tabs.pack(fill="both", expand=True, padx=14, pady=(2, 12))
+        for tname in ("Perfil y Foto", "Cambiar Contraseña", "Eliminar Cuenta"):
+            tabs.add(tname)
+
+        # ── TAB 1: PERFIL Y FOTO ───────────────────────────────────────────────
+        t_perf = tabs.tab("Perfil y Foto")
+        fila_av = ctk.CTkFrame(t_perf, fg_color=P["surface"], corner_radius=12, border_width=1, border_color=P["borde"])
+        fila_av.pack(fill="x", padx=12, pady=(10, 8))
+
+        lbl_av = ctk.CTkLabel(
+            fila_av, text="", width=96, height=96, corner_radius=48,
+            fg_color=P["card_alt"], text_color=P["cian"], font=F_H1
+        )
+        lbl_av.pack(side="left", padx=18, pady=16)
+
+        col_datos = ctk.CTkFrame(fila_av, fg_color="transparent")
+        col_datos.pack(side="left", fill="both", expand=True, padx=(0, 14), pady=14)
+
+        lbl_nick = ctk.CTkLabel(
+            col_datos, text=str(info.get("nickname") or "Operador"),
+            font=F_H2, text_color=P["texto"], anchor="w"
+        )
+        lbl_nick.pack(fill="x")
+        lbl_correo = ctk.CTkLabel(
+            col_datos, text=str(info.get("correo") or "Cargando correo…"),
+            font=F_SMALL, text_color=P["cian"], anchor="w"
+        )
+        lbl_correo.pack(fill="x", pady=(2, 6))
+        lbl_stats = ctk.CTkLabel(
+            col_datos, text="Cargando estadísticas de dispositivos y tickets…",
+            font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
+        )
+        lbl_stats.pack(fill="x")
+
+        lbl_av_msg = ctk.CTkLabel(t_perf, text="", font=F_SMALL, text_color=P["texto_sec"])
+        lbl_av_msg.pack(anchor="w", padx=16, pady=(4, 4))
+
+        def _pintar_avatar_modal(av_data: str | None):
+            if not v.winfo_exists():
+                return
+            img = self._decodificar_avatar_ctk(av_data, size=92, cache_key="modal_account")
+            if img is not None:
+                lbl_av.configure(image=img, text="", fg_color="transparent")
+            else:
+                nick_txt = str(self.usuario_activo_info.get("nickname") or dni or "OP").strip()
+                lbl_av.configure(image=None, text=nick_txt[:2].upper(), fg_color=P["card_alt"])
+
+        _pintar_avatar_modal(info.get("avatar_data"))
+
+        def _cargar_perfil_bg():
+            res = CloudGateway.obtener_perfil_cuenta(tok, self._device_hash)
+
+            def _apply():
+                if not v.winfo_exists():
+                    return
+                if res.get("ok") and res.get("user"):
+                    u = res["user"]
+                    self.usuario_activo_info.update({
+                        "dni": u.get("dni") or dni,
+                        "correo": u.get("correo") or "",
+                        "nickname": u.get("nickname") or "Operador",
+                        "avatar_data": u.get("avatar_data"),
+                    })
+                    lbl_nick.configure(text=self.usuario_activo_info["nickname"])
+                    lbl_correo.configure(text=self.usuario_activo_info["correo"])
+                    lbl_stats.configure(
+                        text=f"Dispositivos confiables: {u.get('dispositivos_confiables', 0)}   ·   "
+                             f"Tickets guardados: {u.get('tickets_count', 0)}"
+                    )
+                    _pintar_avatar_modal(u.get("avatar_data"))
+                    self._refrescar_avatar_topbar()
+                elif res.get("session_expired"):
+                    lbl_stats.configure(text="⚠ Tu sesión de 15 min expiró. Vuelve a iniciar sesión.", text_color=COLOR_ERR)
+
+            self._post_ui(_apply)
+
+        threading.Thread(target=_cargar_perfil_bg, daemon=True).start()
+
+        def _subir_foto():
+            ruta = filedialog.askopenfilename(
+                parent=v,
+                title="Seleccionar foto de perfil (PNG, JPG o WebP)",
+                filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.webp")],
+            )
+            if not ruta:
+                return
+            try:
+                data_uri = _comprimir_imagen_avatar(ruta)
+            except Exception as exc:
+                lbl_av_msg.configure(text=f"✖ No se pudo procesar la imagen: {exc}", text_color=COLOR_ERR)
+                return
+
+            btn_subir_av.configure(state="disabled", text="Guardando foto…")
+            lbl_av_msg.configure(text="Validando firma binaria y guardando en Supabase…", text_color=P["texto_sec"])
+
+            def _bg():
+                res = CloudGateway.actualizar_avatar(tok, self._device_hash, data_uri)
+
+                def _apply():
+                    if not v.winfo_exists():
+                        return
+                    btn_subir_av.configure(state="normal", text="📷 Subir / Cambiar Foto")
+                    if res.get("ok"):
+                        self.usuario_activo_info["avatar_data"] = res.get("avatar_data")
+                        _pintar_avatar_modal(res.get("avatar_data"))
+                        self._refrescar_avatar_topbar()
+                        lbl_av_msg.configure(text="✔ Foto de perfil actualizada correctamente.", text_color=COLOR_OK)
+                    else:
+                        lbl_av_msg.configure(
+                            text=f"✖ {res.get('error') or res.get('error_conexion') or 'No se pudo actualizar la foto.'}",
+                            text_color=COLOR_ERR,
+                        )
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        def _quitar_foto():
+            btn_quitar_av.configure(state="disabled")
+            lbl_av_msg.configure(text="Eliminando foto de perfil…", text_color=P["texto_sec"])
+
+            def _bg():
+                res = CloudGateway.actualizar_avatar(tok, self._device_hash, None)
+
+                def _apply():
+                    if not v.winfo_exists():
+                        return
+                    btn_quitar_av.configure(state="normal")
+                    if res.get("ok"):
+                        self.usuario_activo_info["avatar_data"] = None
+                        _pintar_avatar_modal(None)
+                        self._refrescar_avatar_topbar()
+                        lbl_av_msg.configure(text="✔ Foto de perfil retirada.", text_color=COLOR_OK)
+                    else:
+                        lbl_av_msg.configure(
+                            text=f"✖ {res.get('error') or 'Error al retirar foto.'}", text_color=COLOR_ERR
+                        )
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        acc_av = ctk.CTkFrame(t_perf, fg_color="transparent")
+        acc_av.pack(fill="x", padx=14, pady=6)
+        btn_subir_av = boton(
+            acc_av, "📷 Subir / Cambiar Foto", _subir_foto,
+            variante="primario", width=210, height=36, font=F_SMALL
+        )
+        btn_subir_av.pack(side="left", padx=(0, 8))
+        btn_quitar_av = boton(
+            acc_av, "🗑 Quitar Foto", _quitar_foto,
+            variante="util", width=130, height=36, font=F_SMALL
+        )
+        btn_quitar_av.pack(side="left")
+
+        info_seg = ctk.CTkFrame(t_perf, fg_color=P["surface"], corner_radius=10, border_width=1, border_color=P["borde"])
+        info_seg.pack(fill="x", padx=12, pady=(14, 6))
+        ctk.CTkLabel(
+            info_seg,
+            text="🔒 Privacidad de avatar: la imagen se recorta localmente a 192×192 px (≤ 60 KB), "
+                 "se valida por magic bytes en servidor y se borra al instante si la retiras o eliminas tu cuenta.",
+            font=F_CAPTION, text_color=P["texto_sec"], wraplength=600, justify="left", anchor="w"
+        ).pack(fill="x", padx=14, pady=10)
+
+        # ── TAB 2: CAMBIAR CONTRASEÑA (CON DOBLE FACTOR OTP) ──────────────────
+        t_pwd = tabs.tab("Cambiar Contraseña")
+        pwd_state = {"challenge_id": "", "busy": False}
+
+        ctk.CTkLabel(
+            t_pwd,
+            text="Por seguridad, cambiar tu contraseña exige tu clave actual y un código OTP enviado a tu correo. "
+                 "Al confirmar, todas tus otras sesiones activas se cerrarán automáticamente.",
+            font=F_CAPTION, text_color=P["texto_sec"], wraplength=620, justify="left", anchor="w"
+        ).pack(fill="x", padx=14, pady=(10, 8))
+
+        overline(t_pwd, "Contraseña Actual").pack(anchor="w", padx=14, pady=(2, 2))
+        ent_pwd_cur = entrada(t_pwd, "••••••••", show="*", width=420)
+        ent_pwd_cur.pack(fill="x", padx=14, pady=(0, 6))
+
+        overline(t_pwd, "Nueva Contraseña (mínimo 8 caracteres)").pack(anchor="w", padx=14, pady=(2, 2))
+        ent_pwd_new = entrada(t_pwd, "••••••••", show="*", width=420)
+        ent_pwd_new.pack(fill="x", padx=14, pady=(0, 6))
+
+        overline(t_pwd, "Confirmar Nueva Contraseña").pack(anchor="w", padx=14, pady=(2, 2))
+        ent_pwd_rep = entrada(t_pwd, "••••••••", show="*", width=420)
+        ent_pwd_rep.pack(fill="x", padx=14, pady=(0, 8))
+
+        lbl_pwd_msg = ctk.CTkLabel(t_pwd, text="", font=F_SMALL, text_color=COLOR_ERR, wraplength=610, anchor="w")
+        lbl_pwd_msg.pack(fill="x", padx=14, pady=(2, 6))
+
+        marco_pwd_otp = ctk.CTkFrame(t_pwd, fg_color=P["surface"], corner_radius=10, border_width=1, border_color=P["borde"])
+        overline(marco_pwd_otp, "Paso 2 — Código OTP de 6 dígitos enviado al correo", color=P["cian"]).pack(
+            anchor="w", padx=12, pady=(8, 4)
+        )
+        fila_pwd_otp = ctk.CTkFrame(marco_pwd_otp, fg_color="transparent")
+        fila_pwd_otp.pack(fill="x", padx=12, pady=(0, 10))
+        ent_pwd_otp = entrada(fila_pwd_otp, "000000", width=180)
+        ent_pwd_otp.configure(font=F_H2, justify="center")
+        ent_pwd_otp.pack(side="left", padx=(0, 10))
+
+        def _confirmar_cambio_pwd():
+            if pwd_state["busy"] or not pwd_state["challenge_id"]:
+                return
+            code = ent_pwd_otp.get().strip()
+            if len(code) != 6 or not code.isdigit():
+                lbl_pwd_msg.configure(text="⚠ Ingrese los 6 dígitos del código OTP.", text_color=COLOR_ERR)
+                return
+            pwd_state["busy"] = True
+            btn_pwd_verify.configure(state="disabled", text="Verificando OTP…")
+
+            def _bg():
+                res = CloudGateway.verificar_cambio_password(
+                    tok, self._device_hash, pwd_state["challenge_id"], code
+                )
+
+                def _apply():
+                    pwd_state["busy"] = False
+                    if not v.winfo_exists():
+                        return
+                    btn_pwd_verify.configure(state="normal", text="✔ Confirmar Cambio")
+                    if res.get("ok"):
+                        pwd_state["challenge_id"] = ""
+                        ent_pwd_cur.delete(0, "end")
+                        ent_pwd_new.delete(0, "end")
+                        ent_pwd_rep.delete(0, "end")
+                        ent_pwd_otp.delete(0, "end")
+                        marco_pwd_otp.pack_forget()
+                        lbl_pwd_msg.configure(
+                            text="✔ Contraseña actualizada. Se cerraron las demás sesiones activas y se envió un aviso a tu correo.",
+                            text_color=COLOR_OK,
+                        )
+                        toast(self, "Contraseña actualizada con éxito.", tipo="ok")
+                    else:
+                        lbl_pwd_msg.configure(
+                            text=f"✖ {res.get('error') or res.get('error_conexion') or 'Código incorrecto.'}",
+                            text_color=COLOR_ERR,
+                        )
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        btn_pwd_verify = boton(
+            fila_pwd_otp, "✔ Confirmar Cambio", _confirmar_cambio_pwd,
+            variante="primario", width=190, height=38, font=F_SMALL
+        )
+        btn_pwd_verify.pack(side="left")
+
+        def _iniciar_cambio_pwd():
+            if pwd_state["busy"]:
+                return
+            c_cur = ent_pwd_cur.get().strip()
+            c_new = ent_pwd_new.get().strip()
+            c_rep = ent_pwd_rep.get().strip()
+            if not c_cur or not c_new or not c_rep:
+                lbl_pwd_msg.configure(text="⚠ Complete todos los campos de contraseña.", text_color=COLOR_ERR)
+                return
+            if len(c_new) < 8:
+                lbl_pwd_msg.configure(text="⚠ La nueva contraseña debe tener mínimo 8 caracteres.", text_color=COLOR_ERR)
+                return
+            if c_new != c_rep:
+                lbl_pwd_msg.configure(text="⚠ La confirmación no coincide con la nueva contraseña.", text_color=COLOR_ERR)
+                return
+            if c_cur == c_new:
+                lbl_pwd_msg.configure(text="⚠ La nueva contraseña debe ser diferente a la actual.", text_color=COLOR_ERR)
+                return
+
+            pwd_state["busy"] = True
+            btn_pwd_init.configure(state="disabled", text="Validando clave y enviando OTP…")
+            lbl_pwd_msg.configure(text="")
+
+            def _bg():
+                res = CloudGateway.iniciar_cambio_password(
+                    tok, self._device_hash, self._device_label, dni, c_cur, c_new
+                )
+
+                def _apply():
+                    pwd_state["busy"] = False
+                    if not v.winfo_exists():
+                        return
+                    btn_pwd_init.configure(state="normal", text="Paso 1: Enviar Código OTP al Correo")
+                    if res.get("ok") and res.get("challenge_id"):
+                        pwd_state["challenge_id"] = res["challenge_id"]
+                        marco_pwd_otp.pack(fill="x", padx=14, pady=(4, 8))
+                        lbl_pwd_msg.configure(
+                            text=f"✔ Código de 6 dígitos enviado a {res.get('masked_email')}. Ingrésalo abajo.",
+                            text_color=P["cian"],
+                        )
+                        ent_pwd_otp.focus_set()
+                    else:
+                        lbl_pwd_msg.configure(
+                            text=f"✖ {res.get('error') or res.get('error_conexion') or 'No se pudo iniciar el cambio.'}",
+                            text_color=COLOR_ERR,
+                        )
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        btn_pwd_init = boton(
+            t_pwd, "Paso 1: Enviar Código OTP al Correo", _iniciar_cambio_pwd,
+            variante="azul", width=300, height=36, font=F_SMALL
+        )
+        btn_pwd_init.pack(anchor="w", padx=14, pady=(0, 6))
+
+        # ── TAB 3: ZONA DE PELIGRO — ELIMINAR CUENTA Y TICKETS ────────────────
+        t_del = tabs.tab("Eliminar Cuenta")
+        del_state = {"challenge_id": "", "busy": False}
+
+        aviso_del = ctk.CTkFrame(t_del, fg_color=P["err_bg"], corner_radius=10, border_width=1, border_color="#7f1d1d")
+        aviso_del.pack(fill="x", padx=14, pady=(10, 8))
+        ctk.CTkLabel(
+            aviso_del,
+            text="⚠ ZONA DE PELIGRO — ACCIÓN IRREVERSIBLE (DERECHO ARCO)\n"
+                 "Eliminar tu cuenta borrará permanentemente tu perfil, foto de perfil, sesiones activas, "
+                 "dispositivos confiables y TODOS los tickets de diagnóstico y sugerencias vinculados a tu DNI.",
+            font=F_SMALL, text_color="#fca5a5", wraplength=600, justify="left", anchor="w"
+        ).pack(fill="x", padx=12, pady=10)
+
+        overline(t_del, "Contraseña Actual").pack(anchor="w", padx=14, pady=(2, 2))
+        ent_del_pwd = entrada(t_del, "••••••••", show="*", width=420)
+        ent_del_pwd.pack(fill="x", padx=14, pady=(0, 6))
+
+        overline(t_del, "Escriba ELIMINAR para confirmar").pack(anchor="w", padx=14, pady=(2, 2))
+        ent_del_txt = entrada(t_del, "ELIMINAR", width=420)
+        ent_del_txt.pack(fill="x", padx=14, pady=(0, 8))
+
+        lbl_del_msg = ctk.CTkLabel(t_del, text="", font=F_SMALL, text_color=COLOR_ERR, wraplength=610, anchor="w")
+        lbl_del_msg.pack(fill="x", padx=14, pady=(2, 6))
+
+        marco_del_otp = ctk.CTkFrame(t_del, fg_color=P["surface"], corner_radius=10, border_width=1, border_color="#7f1d1d")
+        overline(marco_del_otp, "Paso 2 — Código OTP Irreversible enviado al correo", color=P["rojo"]).pack(
+            anchor="w", padx=12, pady=(8, 4)
+        )
+        fila_del_otp = ctk.CTkFrame(marco_del_otp, fg_color="transparent")
+        fila_del_otp.pack(fill="x", padx=12, pady=(0, 10))
+        ent_del_otp = entrada(fila_del_otp, "000000", width=180)
+        ent_del_otp.configure(font=F_H2, justify="center")
+        ent_del_otp.pack(side="left", padx=(0, 10))
+
+        def _confirmar_eliminar():
+            if del_state["busy"] or not del_state["challenge_id"]:
+                return
+            code = ent_del_otp.get().strip()
+            if len(code) != 6 or not code.isdigit():
+                lbl_del_msg.configure(text="⚠ Ingrese los 6 dígitos del código OTP.", text_color=COLOR_ERR)
+                return
+            del_state["busy"] = True
+            btn_del_verify.configure(state="disabled", text="Eliminando cuenta y tickets…")
+
+            def _bg():
+                res = CloudGateway.verificar_eliminacion_cuenta(
+                    tok, self._device_hash, del_state["challenge_id"], code
+                )
+
+                def _apply():
+                    del_state["busy"] = False
+                    if not self.winfo_exists():
+                        return
+                    if res.get("ok"):
+                        n_tkt = res.get("tickets_eliminados", 0)
+                        clear_session_token()
+                        self._session_token = None
+                        self.dni_usuario_activo = None
+                        self.usuario_activo_info = {}
+                        if v.winfo_exists():
+                            v.destroy()
+                        self.pantalla_login()
+                        toast(
+                            self,
+                            f"Cuenta eliminada permanentemente ({n_tkt} ticket(s) borrados).",
+                            tipo="ok",
+                            duracion_ms=5000,
+                        )
+                    else:
+                        if v.winfo_exists():
+                            btn_del_verify.configure(state="normal", text="⚠ Eliminar Permanentemente")
+                            lbl_del_msg.configure(
+                                text=f"✖ {res.get('error') or res.get('error_conexion') or 'Código incorrecto.'}",
+                                text_color=COLOR_ERR,
+                            )
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        btn_del_verify = boton(
+            fila_del_otp, "⚠ Eliminar Permanentemente", _confirmar_eliminar,
+            variante="peligro", width=230, height=38, font=F_SMALL
+        )
+        btn_del_verify.pack(side="left")
+
+        def _iniciar_eliminar():
+            if del_state["busy"]:
+                return
+            c_pwd = ent_del_pwd.get().strip()
+            c_txt = ent_del_txt.get().strip().upper()
+            if not c_pwd:
+                lbl_del_msg.configure(text="⚠ Ingrese su contraseña actual.", text_color=COLOR_ERR)
+                return
+            if c_txt not in ("ELIMINAR", "ELIMINAR MI CUENTA", dni.upper()):
+                lbl_del_msg.configure(text="⚠ Escriba ELIMINAR para habilitar la solicitud.", text_color=COLOR_ERR)
+                return
+            del_state["busy"] = True
+            btn_del_init.configure(state="disabled", text="Enviando código OTP de confirmación…")
+            lbl_del_msg.configure(text="")
+
+            def _bg():
+                res = CloudGateway.iniciar_eliminacion_cuenta(
+                    tok, self._device_hash, self._device_label, dni, c_pwd, c_txt
+                )
+
+                def _apply():
+                    del_state["busy"] = False
+                    if not v.winfo_exists():
+                        return
+                    btn_del_init.configure(state="normal", text="Paso 1: Solicitar Código OTP de Eliminación")
+                    if res.get("ok") and res.get("challenge_id"):
+                        del_state["challenge_id"] = res["challenge_id"]
+                        marco_del_otp.pack(fill="x", padx=14, pady=(4, 8))
+                        lbl_del_msg.configure(
+                            text=f"⚠ Código irreversible enviado a {res.get('masked_email')}. Ingrésalo abajo para borrar todo.",
+                            text_color=P["ambar"],
+                        )
+                        ent_del_otp.focus_set()
+                    else:
+                        lbl_del_msg.configure(
+                            text=f"✖ {res.get('error') or res.get('error_conexion') or 'No se pudo iniciar la eliminación.'}",
+                            text_color=COLOR_ERR,
+                        )
+
+                self._post_ui(_apply)
+
+            threading.Thread(target=_bg, daemon=True).start()
+
+        btn_del_init = boton(
+            t_del, "Paso 1: Solicitar Código OTP de Eliminación", _iniciar_eliminar,
+            variante="peligro", width=330, height=36, font=F_SMALL
+        )
+        btn_del_init.pack(anchor="w", padx=14, pady=(0, 6))
 
     def modal_mis_tickets(self):
         v = ctk.CTkToplevel(self)

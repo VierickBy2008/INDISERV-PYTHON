@@ -11,11 +11,13 @@ escaneo de hardware en segundo plano y ensamblaje de vistas modulares:
 
 from __future__ import annotations
 
+import base64
+import io
 import os
 import sys
 import threading
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 
 
 def _resource_path(relative_path: str) -> str:
@@ -106,10 +108,12 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
             self.bind("<Command-Shift-F>", lambda _e: self.alternar_pantalla_completa())
 
         self.dni_usuario_activo: str | None = None
+        self.usuario_activo_info: dict = {}
         self.hardware_detectado: dict | None = None
         self._device_hash, self._device_label = get_device_fingerprint()
         self._session_token: str | None = None
         self._otp_timer_after: str | None = None
+        self._avatar_img_refs: dict[str, ctk.CTkImage] = {}
 
         self.arbol_fase = 0
         self.arbol_rama = -1
@@ -179,10 +183,17 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                     user = res["user"]
                     self._session_token = tok
                     self.dni_usuario_activo = user.get("dni")
+                    self.usuario_activo_info = {
+                        "dni": user.get("dni"),
+                        "correo": user.get("correo"),
+                        "nickname": user.get("nickname") or "Operador",
+                        "avatar_data": user.get("avatar_data"),
+                    }
                     self._mostrar_splash_carga()
                 else:
                     clear_session_token()
                     self._session_token = None
+                    self.usuario_activo_info = {}
                     self.pantalla_login()
 
             self._post_ui(_apply)
@@ -199,12 +210,34 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         clear_session_token()
         self._session_token = None
         self.dni_usuario_activo = None
+        self.usuario_activo_info = {}
         if tok:
             threading.Thread(
                 target=lambda: CloudGateway.revocar_sesion_token(tok, self._device_hash),
                 daemon=True,
             ).start()
         self.pantalla_login()
+
+    def _decodificar_avatar_ctk(
+        self, avatar_data: str | None, size: int = 32, cache_key: str = "topbar"
+    ) -> ctk.CTkImage | None:
+        """Decodifica un Data URI base64 en un CTkImage circular seguro para mostrar en UI."""
+        raw = str(avatar_data or "").strip()
+        if not raw.startswith("data:image/") or ";base64," not in raw:
+            self._avatar_img_refs.pop(cache_key, None)
+            return None
+        try:
+            b64 = raw.split(";base64,", 1)[1]
+            img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
+            img = ImageOps.fit(img, (size * 2, size * 2), Image.Resampling.LANCZOS)
+            mask = Image.new("L", img.size, 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, img.size[0] - 1, img.size[1] - 1), fill=255)
+            img.putalpha(mask)
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
+            self._avatar_img_refs[cache_key] = ctk_img
+            return ctk_img
+        except Exception:
+            return None
 
     def _mostrar_fondo(self, visible: bool):
         """Muestra el fondo fotográfico solo en pantallas de acceso; lo oculta en Dashboard/vistas."""
@@ -460,7 +493,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         self._colocar_boton_fullscreen_flotante()
 
         card = ctk.CTkFrame(
-            self, width=440, height=495, corner_radius=0,
+            self, width=440, height=535, corner_radius=0,
             fg_color=P["card"], border_width=1, border_color=P["borde_fuerte"]
         )
         animar_entrada_panel(card)
@@ -531,7 +564,286 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         boton(
             acciones, "Crear Nueva Cuenta de Operador",
             self.pantalla_registro, variante="fantasma", width=388, height=34
+        ).pack(fill="x", pady=(0, 6))
+
+        boton(
+            acciones, "🔑 ¿Olvidaste tu contraseña?",
+            self.pantalla_recuperar_password, variante="util", width=388, height=30,
+            font=F_CAPTION, hover_border_color=P["ambar"]
         ).pack(fill="x")
+
+    def pantalla_recuperar_password(self):
+        """Flujo seguro de recuperación de contraseña desde Login (DNI + Correo + OTP Brevo)."""
+        if self._otp_timer_after:
+            try:
+                self.after_cancel(self._otp_timer_after)
+            except Exception:
+                pass
+            self._otp_timer_after = None
+
+        self.limpiar_panel(mostrar_fondo=True)
+        self._colocar_boton_fullscreen_flotante()
+
+        state = {
+            "step": 1,
+            "dni": "",
+            "correo": "",
+            "challenge_id": "",
+            "masked_email": "",
+            "exp_left": 0,
+            "resend_left": 0,
+            "busy": False,
+        }
+
+        card = ctk.CTkFrame(
+            self, width=460, height=540, corner_radius=0,
+            fg_color=P["card"], border_width=1, border_color=P["borde_fuerte"]
+        )
+        animar_entrada_panel(card)
+        card.pack_propagate(False)
+
+        top = ctk.CTkFrame(card, fg_color=P["surface"], corner_radius=12)
+        top.pack(fill="x", padx=18, pady=(16, 8))
+        ctk.CTkLabel(
+            top, text="🔑 Recuperar Contraseña", font=F_H2, text_color=P["ambar"], anchor="w"
+        ).pack(fill="x", padx=14, pady=(12, 2))
+        lbl_sub = ctk.CTkLabel(
+            top,
+            text="Ingrese su DNI y correo registrado. Enviaremos un código de 6 dígitos para restablecer su clave.",
+            font=F_CAPTION, text_color=P["texto_sec"], anchor="w", wraplength=400, justify="left"
+        )
+        lbl_sub.pack(fill="x", padx=14, pady=(0, 12))
+
+        contenedor = ctk.CTkFrame(card, fg_color="transparent")
+        contenedor.pack(fill="both", expand=True, padx=26, pady=4)
+
+        lbl_msg = ctk.CTkLabel(card, text="", text_color=COLOR_ERR, font=F_SMALL, wraplength=400)
+        lbl_msg.pack(pady=(2, 4))
+
+        def _render_step1():
+            for w in contenedor.winfo_children():
+                w.destroy()
+            lbl_msg.configure(text="")
+            lbl_sub.configure(
+                text="Ingrese su DNI y correo registrado. Enviaremos un código de 6 dígitos para restablecer su clave."
+            )
+
+            overline(contenedor, "DNI del Operador (8 dígitos)").pack(anchor="w", pady=(6, 2))
+            ent_dni = entrada(contenedor, "Ej. 75509123", width=390)
+            if state["dni"]:
+                ent_dni.insert(0, state["dni"])
+            ent_dni.pack(fill="x", pady=(0, 8))
+
+            overline(contenedor, "Correo Registrado").pack(anchor="w", pady=(4, 2))
+            ent_cor = entrada(contenedor, "operador@indiserv.pe", width=390)
+            if state["correo"]:
+                ent_cor.insert(0, state["correo"])
+            ent_cor.pack(fill="x", pady=(0, 12))
+
+            def _solicitar():
+                if state["busy"]:
+                    return
+                d = ent_dni.get().strip()
+                c = ent_cor.get().strip()
+                if len(d) < 8 or "@" not in c:
+                    lbl_msg.configure(text="⚠ Ingrese un DNI válido (8 dígitos) y su correo.", text_color=COLOR_ERR)
+                    return
+                state["busy"] = True
+                btn_env.configure(state="disabled", text="Enviando código de recuperación…")
+                lbl_msg.configure(text="")
+
+                def _bg():
+                    res = CloudGateway.iniciar_recuperacion_password(
+                        d, c, self._device_hash, self._device_label
+                    )
+
+                    def _apply():
+                        state["busy"] = False
+                        if not card.winfo_exists():
+                            return
+                        if res.get("ok") and res.get("challenge_id"):
+                            state.update({
+                                "step": 2,
+                                "dni": d,
+                                "correo": c,
+                                "challenge_id": res["challenge_id"],
+                                "masked_email": res.get("masked_email") or c,
+                                "exp_left": int(res.get("expires_in_sec") or 600),
+                                "resend_left": int(res.get("resend_cooldown_sec") or 60),
+                            })
+                            _render_step2()
+                        else:
+                            btn_env.configure(state="normal", text="Enviar Código de Recuperación  →")
+                            lbl_msg.configure(
+                                text=f"✖ {res.get('error') or res.get('error_conexion') or 'No se pudo iniciar la recuperación.'}",
+                                text_color=COLOR_ERR,
+                            )
+
+                    self._post_ui(_apply)
+
+                threading.Thread(target=_bg, daemon=True).start()
+
+            btn_env = boton(
+                contenedor, "Enviar Código de Recuperación  →", _solicitar,
+                variante="ambar", width=390, height=40
+            )
+            btn_env.pack(fill="x", pady=(4, 8))
+            boton(
+                contenedor, "← Volver al Inicio de Sesión", self.pantalla_login,
+                variante="fantasma", width=390, height=34
+            ).pack(fill="x")
+            ent_cor.bind("<Return>", lambda _e: _solicitar())
+
+        def _render_step2():
+            for w in contenedor.winfo_children():
+                w.destroy()
+            lbl_msg.configure(text="")
+            lbl_sub.configure(
+                text=f"Si los datos coinciden con una cuenta activa, enviamos un código de 6 dígitos a {state['masked_email']}."
+            )
+
+            overline(contenedor, "Código de Seguridad (6 dígitos)").pack(anchor="w", pady=(2, 2))
+            ent_code = entrada(contenedor, "000000", width=390)
+            ent_code.configure(font=F_H2, justify="center")
+            ent_code.pack(fill="x", pady=(0, 4))
+
+            lbl_tmr = ctk.CTkLabel(contenedor, text="", font=F_CAPTION, text_color=P["texto_sec"])
+            lbl_tmr.pack(anchor="w", pady=(0, 6))
+
+            overline(contenedor, "Nueva Contraseña (mín. 8 caracteres)").pack(anchor="w", pady=(2, 2))
+            ent_p1 = entrada(contenedor, "••••••••", show="*", width=390)
+            ent_p1.pack(fill="x", pady=(0, 6))
+
+            overline(contenedor, "Confirmar Nueva Contraseña").pack(anchor="w", pady=(2, 2))
+            ent_p2 = entrada(contenedor, "••••••••", show="*", width=390)
+            ent_p2.pack(fill="x", pady=(0, 10))
+
+            def _confirmar():
+                if state["busy"]:
+                    return
+                code = ent_code.get().strip()
+                p1 = ent_p1.get().strip()
+                p2 = ent_p2.get().strip()
+                if len(code) != 6 or not code.isdigit():
+                    lbl_msg.configure(text="⚠ Ingrese exactamente 6 dígitos numéricos.", text_color=COLOR_ERR)
+                    return
+                if len(p1) < 8:
+                    lbl_msg.configure(text="⚠ La nueva contraseña debe tener al menos 8 caracteres.", text_color=COLOR_ERR)
+                    return
+                if p1 != p2:
+                    lbl_msg.configure(text="⚠ Las contraseñas no coinciden.", text_color=COLOR_ERR)
+                    return
+
+                state["busy"] = True
+                btn_ok.configure(state="disabled", text="Restableciendo contraseña…")
+                lbl_msg.configure(text="")
+                cid = state["challenge_id"]
+
+                def _bg():
+                    res = CloudGateway.verificar_recuperacion_password(
+                        state["dni"], cid, code, p1, self._device_hash
+                    )
+
+                    def _apply():
+                        state["busy"] = False
+                        if not card.winfo_exists():
+                            return
+                        if res.get("ok"):
+                            if self._otp_timer_after:
+                                try:
+                                    self.after_cancel(self._otp_timer_after)
+                                except Exception:
+                                    pass
+                                self._otp_timer_after = None
+                            self.pantalla_login()
+                            toast(
+                                self,
+                                "Contraseña restablecida. Todas las sesiones anteriores fueron cerradas.",
+                                tipo="ok",
+                            )
+                        else:
+                            btn_ok.configure(state="normal", text="Restablecer Contraseña  →")
+                            lbl_msg.configure(
+                                text=f"✖ {res.get('error') or res.get('error_conexion') or 'Código incorrecto o expirado.'}",
+                                text_color=COLOR_ERR,
+                            )
+
+                    self._post_ui(_apply)
+
+                threading.Thread(target=_bg, daemon=True).start()
+
+            def _reenviar():
+                if state["busy"] or state["resend_left"] > 0:
+                    return
+                state["busy"] = True
+                btn_res.configure(state="disabled", text="Reenviando…")
+
+                def _bg():
+                    res = CloudGateway.iniciar_recuperacion_password(
+                        state["dni"], state["correo"], self._device_hash, self._device_label
+                    )
+
+                    def _apply():
+                        state["busy"] = False
+                        if not card.winfo_exists():
+                            return
+                        if res.get("ok") and res.get("challenge_id"):
+                            state["challenge_id"] = res["challenge_id"]
+                            state["exp_left"] = int(res.get("expires_in_sec") or 600)
+                            state["resend_left"] = int(res.get("resend_cooldown_sec") or 60)
+                            lbl_msg.configure(text="✔ Nuevo código enviado si la cuenta existe.", text_color=COLOR_OK)
+                        else:
+                            state["resend_left"] = int(res.get("wait_sec") or 30)
+                            lbl_msg.configure(
+                                text=f"⚠ {res.get('error') or 'No se pudo reenviar el código.'}",
+                                text_color=COLOR_ERR,
+                            )
+
+                    self._post_ui(_apply)
+
+                threading.Thread(target=_bg, daemon=True).start()
+
+            btn_ok = boton(
+                contenedor, "Restablecer Contraseña  →", _confirmar,
+                variante="primario", width=390, height=40
+            )
+            btn_ok.pack(fill="x", pady=(0, 6))
+
+            btn_res = boton(
+                contenedor, f"Reenviar código ({state['resend_left']} s)", _reenviar,
+                variante="util", width=390, height=32, font=F_SMALL
+            )
+            btn_res.pack(fill="x", pady=(0, 6))
+
+            boton(
+                contenedor, "← Volver al Login", self.pantalla_login,
+                variante="fantasma", width=390, height=30, font=F_SMALL
+            ).pack(fill="x")
+
+            ent_p2.bind("<Return>", lambda _e: _confirmar())
+
+            def _tick():
+                if not card.winfo_exists() or state["step"] != 2:
+                    return
+                if state["exp_left"] > 0:
+                    state["exp_left"] -= 1
+                mm, ss = divmod(state["exp_left"], 60)
+                lbl_tmr.configure(
+                    text=f"Expira en: {mm:02d}:{ss:02d}  ·  Máx. 5 intentos"
+                    if state["exp_left"] > 0
+                    else "Código expirado. Solicite un nuevo código."
+                )
+                if not state["busy"]:
+                    if state["resend_left"] > 0:
+                        state["resend_left"] -= 1
+                        btn_res.configure(state="disabled", text=f"Reenviar código ({state['resend_left']} s)")
+                    else:
+                        btn_res.configure(state="normal", text="↻ Reenviar código")
+                self._otp_timer_after = self.after(1000, _tick)
+
+            _tick()
+
+        _render_step1()
 
     def _iniciar_login_async(self):
         """
@@ -599,6 +911,12 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                         self._session_token = auth_res["session_token"]
                         save_session_token(self._session_token, self._device_hash)
                     self.dni_usuario_activo = auth_res.get("dni") or dni
+                    self.usuario_activo_info = {
+                        "dni": self.dni_usuario_activo,
+                        "correo": auth_res.get("correo") or correo,
+                        "nickname": auth_res.get("nickname") or "Operador",
+                        "avatar_data": auth_res.get("avatar_data"),
+                    }
                     self._mostrar_splash_carga()
                 else:
                     bloqueado, seg_lock = record_failed_login(dni, correo)
@@ -720,6 +1038,12 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
                         save_session_token(self._session_token, self._device_hash)
                         user = res.get("user") or {}
                         self.dni_usuario_activo = user.get("dni")
+                        self.usuario_activo_info = {
+                            "dni": user.get("dni"),
+                            "correo": user.get("correo"),
+                            "nickname": user.get("nickname") or "Operador",
+                            "avatar_data": user.get("avatar_data"),
+                        }
                         self._mostrar_splash_carga()
                         toast(
                             self,
