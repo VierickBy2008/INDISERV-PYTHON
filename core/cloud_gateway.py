@@ -9,18 +9,32 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html as _html
 import http.client
+import http.server
+import os
+import secrets
 import ssl
+import subprocess
+import sys
+import time
 import traceback
 import threading
 import json as _json
+import urllib.parse
 import urllib.request
 import urllib.error
+import webbrowser
 from typing import Any
 
 SUPABASE_URL  = "https://pvrfnvrxaxulcxacdino.supabase.co"
 SUPABASE_HOST = "pvrfnvrxaxulcxacdino.supabase.co"
 SUPABASE_KEY  = "sb_publishable_G7D4dhh3Q2LWzgRnzRRa9A_4ngZ5FiW"
+
+OAUTH_PROVIDERS: tuple[str, ...] = ("google", "github")
+OAUTH_DEFAULT_PORT: int = 54321
+OAUTH_CALLBACK_PATH: str = "/auth/callback"
+OAUTH_CALLBACK_URL_DEFAULT: str = f"http://localhost:{OAUTH_DEFAULT_PORT}{OAUTH_CALLBACK_PATH}"
 
 # Pines SPKI SHA-256 reales de Google Trust Services / GlobalSign (sincronizados con Android network_security_config.xml)
 SUPABASE_SPKI_PINS: frozenset[str] = frozenset({
@@ -111,6 +125,150 @@ def _get_pinned_opener() -> urllib.request.OpenerDirector:
                     _PinnedHTTPSHandler(_build_pinned_ssl_context())
                 )
     return _PINNED_OPENER
+
+
+def _abrir_navegador_multiplataforma(url: str) -> bool:
+    """
+    Abre una URL HTTPS en el navegador predeterminado en Windows, Linux y macOS.
+    En binarios Linux PyInstaller (--onefile) restaura LD_LIBRARY_PATH_ORIG para
+    evitar conflictos de librerías compartidas (.so) con xdg-open / Firefox / Chrome.
+    """
+    clean_url = str(url or "").strip()
+    if not clean_url.startswith("https://"):
+        return False
+
+    if sys.platform.startswith("linux") and getattr(sys, "frozen", False):
+        env = dict(os.environ)
+        orig_ld = env.get("LD_LIBRARY_PATH_ORIG")
+        if orig_ld is not None:
+            env["LD_LIBRARY_PATH"] = orig_ld
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+        xdg = "/usr/bin/xdg-open" if os.path.isfile("/usr/bin/xdg-open") else "xdg-open"
+        try:
+            subprocess.Popen(
+                [xdg, clean_url],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception:
+            pass
+    elif sys.platform == "darwin" and os.path.isfile("/usr/bin/open"):
+        try:
+            subprocess.Popen(
+                ["/usr/bin/open", clean_url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception:
+            pass
+
+    return bool(webbrowser.open(clean_url))
+
+
+class _ReusableLoopbackHTTPServer(http.server.HTTPServer):
+    """Servidor HTTP loopback con SO_REUSEADDR habilitado para reintentos rápidos en Linux y macOS."""
+
+    allow_reuse_address = True
+
+    def __init__(self, server_address: tuple[str, int], handler_cls: Any, oauth_state: dict, oauth_nonce: str):
+        self.oauth_state = oauth_state
+        self.oauth_nonce = oauth_nonce
+        super().__init__(server_address, handler_cls)
+
+
+class _OAuthCallbackRequestHandler(http.server.BaseHTTPRequestHandler):
+    """Manejador HTTP loopback compatible con compilación C nativa (Cython) en Windows/Linux/macOS."""
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+        return
+
+    def _send_bytes(self, status: int, content_type: str, body: bytes) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:  # noqa: N802
+        srv: Any = self.server
+        state: dict = srv.oauth_state
+        nonce: str = srv.oauth_nonce
+
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/favicon.ico":
+            self._send_bytes(204, "text/plain", b"")
+            return
+        if not parsed.path.startswith(OAUTH_CALLBACK_PATH):
+            self._send_bytes(404, "text/plain; charset=utf-8", b"Ruta no encontrada.")
+            return
+
+        qs = urllib.parse.parse_qs(parsed.query)
+        code = (qs.get("code") or [""])[0].strip()
+        acc = (qs.get("access_token") or [""])[0].strip()
+        err = (qs.get("error") or [""])[0].strip()
+        err_desc = (qs.get("error_description") or [""])[0].strip()
+
+        if err:
+            state["error"] = err
+            state["error_description"] = err_desc or err
+            state["done"] = True
+            body = CloudGateway._render_oauth_callback_html(
+                "Autorización cancelada o denegada",
+                err_desc or "El proveedor OAuth rechazó la solicitud. Vuelva a la aplicación.",
+                es_error=True,
+            )
+            self._send_bytes(200, "text/html; charset=utf-8", body)
+        elif code or acc:
+            state["code"] = code
+            state["access_token"] = acc
+            state["refresh_token"] = (qs.get("refresh_token") or [""])[0].strip()
+            state["done"] = True
+            body = CloudGateway._render_oauth_callback_html(
+                "Autenticación recibida",
+                "Ya puede cerrar esta pestaña del navegador y volver a IndiServ Analytica.",
+                es_error=False,
+            )
+            self._send_bytes(200, "text/html; charset=utf-8", body)
+        else:
+            body = CloudGateway._render_oauth_callback_html(
+                "Sincronizando sesión…",
+                "Procesando credenciales seguras con IndiServ Analytica…",
+                es_error=False,
+                nonce=nonce,
+            )
+            self._send_bytes(200, "text/html; charset=utf-8", body)
+
+    def do_POST(self) -> None:  # noqa: N802
+        srv: Any = self.server
+        state: dict = srv.oauth_state
+        nonce: str = srv.oauth_nonce
+
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != f"{OAUTH_CALLBACK_PATH}/fragment":
+            self._send_bytes(404, "application/json", b'{"ok":false}')
+            return
+        if self.headers.get("X-OAuth-Nonce", "") != nonce:
+            self._send_bytes(403, "application/json", b'{"ok":false}')
+            return
+        try:
+            length = min(16384, max(0, int(self.headers.get("Content-Length", "0"))))
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            data = _json.loads(raw) if raw else {}
+        except Exception:
+            data = {}
+
+        state["access_token"] = str(data.get("access_token") or "").strip()
+        state["refresh_token"] = str(data.get("refresh_token") or "").strip()
+        state["code"] = str(data.get("code") or "").strip()
+        state["error"] = str(data.get("error") or "").strip()
+        state["error_description"] = str(data.get("error_description") or "").strip()
+        state["done"] = True
+        self._send_bytes(200, "application/json", b'{"ok":true}')
 
 
 class CloudGateway:
@@ -549,3 +707,851 @@ class CloudGateway:
             }
         )
         return bool(res.get("ok"))
+
+    # =========================================================================
+    # AUTENTICACIÓN OAUTH 2.0 EN ESCRITORIO (PKCE + IMPLICIT — GOOGLE / GITHUB)
+    # =========================================================================
+
+    @staticmethod
+    def obtener_callback_url_configuracion(port: int = OAUTH_DEFAULT_PORT) -> str:
+        """Devuelve la URL de redirección local recomendada para Supabase Auth."""
+        return f"http://localhost:{int(port)}{OAUTH_CALLBACK_PATH}"
+
+    @staticmethod
+    def generar_pkce_pair() -> tuple[str, str]:
+        """Genera (code_verifier, code_challenge) conforme a RFC 7636 (S256)."""
+        verifier = secrets.token_urlsafe(48)
+        digest = hashlib.sha256(verifier.encode("ascii")).digest()
+        challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+        return verifier, challenge
+
+    @staticmethod
+    def construir_url_oauth(
+        provider: str,
+        redirect_uri: str | None = None,
+        code_challenge: str | None = None,
+    ) -> str:
+        """Construye la URL oficial de autorización OAuth de Supabase para Google o GitHub."""
+        prov = str(provider or "").strip().lower()
+        if prov not in OAUTH_PROVIDERS:
+            raise ValueError(f"Proveedor OAuth no soportado: {provider!r}. Use 'google' o 'github'.")
+
+        destino = str(redirect_uri or OAUTH_CALLBACK_URL_DEFAULT).strip()
+        params: dict[str, str] = {
+            "provider": prov,
+            "redirect_to": destino,
+        }
+        if code_challenge:
+            params["code_challenge"] = str(code_challenge).strip()
+            params["code_challenge_method"] = "s256"
+        if prov == "google":
+            params["prompt"] = "select_account"
+
+        qs = urllib.parse.urlencode(params)
+        return f"{SUPABASE_URL.rstrip('/')}/auth/v1/authorize?{qs}"
+
+    @staticmethod
+    def _render_oauth_callback_html(titulo: str, detalle: str, es_error: bool = False, nonce: str = "") -> bytes:
+        """Genera la página HTML dark-tech servida localmente al navegador tras el callback OAuth."""
+        acento = "#ef4444" if es_error else "#10b981"
+        simbolo = "✖" if es_error else "✔"
+        t_safe = _html.escape(titulo)
+        d_safe = _html.escape(detalle)
+        script_fragment = ""
+        if nonce:
+            script_fragment = f"""
+<script>
+(function() {{
+  var h = window.location.hash ? window.location.hash.substring(1) : "";
+  var st = document.getElementById("status-msg");
+  var ti = document.getElementById("status-title");
+  if (!h) {{
+    ti.textContent = "✖ No se recibieron credenciales OAuth";
+    ti.style.color = "#ef4444";
+    st.textContent = "Vuelva a IndiServ Analytica e intente iniciar sesión nuevamente.";
+    fetch("{OAUTH_CALLBACK_PATH}/fragment", {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json", "X-OAuth-Nonce": "{nonce}" }},
+      body: JSON.stringify({{ error: "missing_credentials", error_description: "El proveedor no devolvió código ni token de sesión." }})
+    }}).catch(function(){{}});
+    return;
+  }}
+  var p = new URLSearchParams(h);
+  var payload = {{
+    access_token: p.get("access_token") || "",
+    refresh_token: p.get("refresh_token") || "",
+    code: p.get("code") || "",
+    error: p.get("error") || "",
+    error_description: p.get("error_description") || ""
+  }};
+  fetch("{OAUTH_CALLBACK_PATH}/fragment", {{
+    method: "POST",
+    headers: {{ "Content-Type": "application/json", "X-OAuth-Nonce": "{nonce}" }},
+    body: JSON.stringify(payload)
+  }}).then(function() {{
+    if (payload.error) {{
+      ti.textContent = "✖ Autorización denegada";
+      ti.style.color = "#ef4444";
+      st.textContent = payload.error_description || payload.error;
+    }} else {{
+      ti.textContent = "✔ Autenticación completada";
+      ti.style.color = "#10b981";
+      st.textContent = "Sesión sincronizada con IndiServ Analytica. Ya puede cerrar esta pestaña.";
+      if (window.history && window.history.replaceState) {{
+        window.history.replaceState(null, "", window.location.pathname);
+      }}
+    }}
+  }}).catch(function() {{
+    st.textContent = "No se pudo contactar con la instancia local de IndiServ Analytica.";
+  }});
+}})();
+</script>"""
+        doc = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>IndiServ Analytica — Autenticación OAuth</title>
+<style>
+  body {{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#090c12; color:#f1f5f9; font-family:'Segoe UI',system-ui,sans-serif; }}
+  .card {{ max-width:440px; padding:28px 30px; background:#141b2a; border:1px solid #334361;
+          border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,.55); text-align:center; }}
+  .brand {{ color:#22d3ee; font-size:12px; font-weight:600; letter-spacing:1.2px; margin-bottom:12px; }}
+  h1 {{ font-size:19px; margin:0 0 10px; color:{acento}; }}
+  p {{ font-size:13.5px; line-height:1.55; color:#94a3b8; margin:0; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">◈ INDISERV ANALYTICA · DESKTOP OAUTH</div>
+    <h1 id="status-title">{simbolo} {t_safe}</h1>
+    <p id="status-msg">{d_safe}</p>
+  </div>
+  {script_fragment}
+</body>
+</html>"""
+        return doc.encode("utf-8")
+
+    @staticmethod
+    def iniciar_servidor_callback_oauth(preferred_port: int = OAUTH_DEFAULT_PORT) -> tuple[http.server.HTTPServer, str, dict]:
+        """
+        Levanta un servidor HTTP local temporal en 127.0.0.1 (prefiere puerto 54321;
+        si está ocupado, toma cualquier puerto libre del SO) listo para capturar el callback.
+        """
+        nonce = secrets.token_urlsafe(24)
+        state: dict[str, Any] = {
+            "done": False,
+            "code": "",
+            "access_token": "",
+            "refresh_token": "",
+            "error": "",
+            "error_description": "",
+        }
+
+        httpd: http.server.HTTPServer | None = None
+        if preferred_port > 0:
+            try:
+                httpd = _ReusableLoopbackHTTPServer(
+                    ("127.0.0.1", int(preferred_port)), _OAuthCallbackRequestHandler, state, nonce
+                )
+            except OSError:
+                httpd = None
+        if httpd is None:
+            httpd = _ReusableLoopbackHTTPServer(
+                ("127.0.0.1", 0), _OAuthCallbackRequestHandler, state, nonce
+            )
+
+        httpd.timeout = 0.25
+        actual_port = int(httpd.server_address[1])
+        redirect_uri = f"http://localhost:{actual_port}{OAUTH_CALLBACK_PATH}"
+        return httpd, redirect_uri, state
+
+    @staticmethod
+    def esperar_callback_oauth(
+        httpd: http.server.HTTPServer,
+        state: dict,
+        cancel_event: threading.Event | None = None,
+        timeout_sec: float = 180.0,
+    ) -> dict:
+        """Espera respuesta del navegador sin bloquear la GUI y cierra el servidor automáticamente."""
+        deadline = time.monotonic() + max(5.0, float(timeout_sec))
+        try:
+            while not state.get("done"):
+                if cancel_event is not None and cancel_event.is_set():
+                    return {"ok": False, "cancelado": True, "error": "Autenticación cancelada por el operador."}
+                if time.monotonic() >= deadline:
+                    return {
+                        "ok": False,
+                        "timeout": True,
+                        "error": "Tiempo de espera agotado esperando autorización en el navegador.",
+                    }
+                httpd.handle_request()
+        finally:
+            try:
+                httpd.server_close()
+            except Exception:
+                pass
+
+        if state.get("error"):
+            return {
+                "ok": False,
+                "error": state.get("error_description") or state.get("error") or "Autorización OAuth rechazada.",
+            }
+        if state.get("code") or state.get("access_token"):
+            return {
+                "ok": True,
+                "code": state.get("code", ""),
+                "access_token": state.get("access_token", ""),
+                "refresh_token": state.get("refresh_token", ""),
+            }
+        return {"ok": False, "error": "No se recibió código ni token de autorización."}
+
+    @staticmethod
+    def intercambiar_codigo_oauth_pkce(auth_code: str, code_verifier: str) -> dict:
+        """Intercambia el authorization code PKCE por access_token + perfil verificado en Supabase Auth."""
+        url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/token?grant_type=pkce"
+        body = _json.dumps(
+            {"auth_code": str(auth_code or "").strip(), "code_verifier": str(code_verifier or "").strip()}
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/json", "apikey": SUPABASE_KEY},
+        )
+        try:
+            with _get_pinned_opener().open(req, timeout=12) as resp:
+                parsed = _json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+                tok = str(parsed.get("access_token") or "").strip()
+                if tok:
+                    return {
+                        "ok": True,
+                        "access_token": tok,
+                        "refresh_token": str(parsed.get("refresh_token") or "").strip(),
+                        "user": parsed.get("user") or {},
+                    }
+                return {"ok": False, "error": "Supabase no devolvió un token de acceso válido."}
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            try:
+                err_obj = _json.loads(raw) if raw else {}
+            except Exception:
+                err_obj = {}
+            msg = err_obj.get("msg") or err_obj.get("error_description") or err_obj.get("error") or f"HTTP {exc.code}"
+            return {"ok": False, "error": f"Error al canjear código OAuth: {msg}"}
+        except Exception as exc:
+            return {"ok": False, "error_conexion": f"Error de conexión segura en canje OAuth: {str(exc)[:90]}"}
+
+    @staticmethod
+    def obtener_usuario_oauth_token(access_token: str) -> dict:
+        """Verifica un access_token OAuth directamente contra GET /auth/v1/user (con pinning SPKI)."""
+        url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/user"
+        req = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {str(access_token or '').strip()}",
+            },
+        )
+        try:
+            with _get_pinned_opener().open(req, timeout=12) as resp:
+                user = _json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+                if isinstance(user, dict) and (user.get("id") or user.get("email")):
+                    return {"ok": True, "user": user}
+                return {"ok": False, "error": "Perfil OAuth inválido o expirado."}
+        except urllib.error.HTTPError as exc:
+            return {"ok": False, "error": f"Token OAuth rechazado por Supabase (HTTP {exc.code})."}
+        except Exception as exc:
+            return {"ok": False, "error_conexion": f"Error de red verificando identidad OAuth: {str(exc)[:90]}"}
+
+    @staticmethod
+    def extraer_perfil_oauth(user_obj: dict, provider_hint: str = "") -> dict:
+        """Extrae correo electrónico y nombre/alias normalizado del objeto user de Google o GitHub."""
+        u = user_obj if isinstance(user_obj, dict) else {}
+        meta = u.get("user_metadata") if isinstance(u.get("user_metadata"), dict) else {}
+        app_meta = u.get("app_metadata") if isinstance(u.get("app_metadata"), dict) else {}
+        identities = u.get("identities") if isinstance(u.get("identities"), list) else []
+        id_data = (
+            identities[0].get("identity_data")
+            if identities and isinstance(identities[0], dict) and isinstance(identities[0].get("identity_data"), dict)
+            else {}
+        )
+
+        correo = (
+            str(u.get("email") or meta.get("email") or id_data.get("email") or "").strip().lower()
+        )
+        raw_alias = (
+            meta.get("full_name")
+            or meta.get("name")
+            or meta.get("preferred_username")
+            or meta.get("user_name")
+            or id_data.get("full_name")
+            or id_data.get("name")
+            or id_data.get("user_name")
+            or (correo.split("@", 1)[0] if "@" in correo else "Operador")
+        )
+        nickname = str(raw_alias).strip()[:40] or "Operador"
+        provider = str(app_meta.get("provider") or provider_hint or "oauth").strip().lower()
+        return {
+            "correo": correo,
+            "nickname": nickname,
+            "provider": provider,
+            "oauth_user_id": str(u.get("id") or ""),
+        }
+
+    @staticmethod
+    def _rest_oauth_request(
+        path_and_query: str,
+        access_token: str,
+        method: str = "GET",
+        payload: dict | None = None,
+        prefer: str = "",
+    ) -> tuple[int, Any]:
+        """Ejecuta una llamada PostgREST/RPC autenticada con el JWT OAuth de Supabase y pinning SPKI."""
+        url = f"{SUPABASE_URL.rstrip('/')}{path_and_query}"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        }
+        data = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            data = _json.dumps(payload).encode("utf-8")
+        if prefer:
+            headers["Prefer"] = prefer
+        req = urllib.request.Request(url, data=data, method=method, headers=headers)
+        try:
+            with _get_pinned_opener().open(req, timeout=12) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                return resp.status, (_json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            try:
+                return exc.code, (_json.loads(raw) if raw else {})
+            except Exception:
+                return exc.code, {"message": raw or f"HTTP {exc.code}"}
+        except Exception as exc:
+            return 0, {"error_conexion": f"Error de conexión segura: {str(exc)[:90]}"}
+
+    @staticmethod
+    def autenticar_operador_oauth(
+        access_token: str,
+        correo: str,
+        nickname: str,
+        provider: str,
+        device_hash: str,
+        device_label: str,
+    ) -> dict:
+        """
+        Verifica si el correo autenticado por Google/GitHub ya figura en 'usuarios_app'.
+        Si existe, retorna autenticado=True + datos + session_token.
+        Si es nuevo, retorna requiere_dni=True para abrir el modal estilizado de DNI.
+        """
+        from core.security import is_honey_credential, trigger_honeytoken_alert
+
+        clean_correo = str(correo or "").strip().lower()
+        clean_nick = str(nickname or "Operador").strip() or "Operador"
+        if not clean_correo or "@" not in clean_correo:
+            return {
+                "ok": False,
+                "error": "Tu cuenta social no expuso un correo electrónico público/verificado.",
+            }
+
+        if is_honey_credential("", clean_correo):
+            trigger_honeytoken_alert(
+                tipo="CREDENCIAL_SENUELO_OAUTH_DESKTOP",
+                detalle=f"Intento OAuth ({provider}) con correo señuelo '{clean_correo}'",
+            )
+            return {"ok": False, "error": "Cuenta no autorizada en el sistema."}
+
+        # 1) Vía primaria: Edge Function 'auth-otp' (emite session_token de 15 min si está desplegada)
+        otp_res = CloudGateway._auth_otp_post(
+            {
+                "action": "oauth_login",
+                "oauth_access_token": access_token,
+                "correo": clean_correo,
+                "nickname": clean_nick,
+                "provider": provider,
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "plataforma": "desktop",
+            }
+        )
+        if otp_res.get("ok"):
+            if otp_res.get("requires_dni") or otp_res.get("status") == "needs_dni":
+                return {
+                    "ok": True,
+                    "autenticado": False,
+                    "requiere_dni": True,
+                    "correo": clean_correo,
+                    "nickname": clean_nick,
+                    "provider": provider,
+                }
+            user = otp_res.get("user") or {}
+            return {
+                "ok": True,
+                "autenticado": True,
+                "requiere_dni": False,
+                "session_token": otp_res.get("session_token"),
+                "dni": user.get("dni"),
+                "correo": user.get("correo") or clean_correo,
+                "nickname": user.get("nickname") or clean_nick,
+                "avatar_data": user.get("avatar_data"),
+                "rol": user.get("rol") or "operator",
+            }
+
+        # 2) Vía RPC SECURITY DEFINER 'oauth_sync_operador' (autenticada con JWT de Supabase Auth)
+        status_rpc, rpc_data = CloudGateway._rest_oauth_request(
+            "/rest/v1/rpc/oauth_sync_operador",
+            access_token=access_token,
+            method="POST",
+            payload={
+                "p_dni": None,
+                "p_nickname": clean_nick,
+                "p_device_hash": device_hash,
+                "p_device_label": device_label,
+            },
+        )
+        if status_rpc == 200 and isinstance(rpc_data, dict):
+            if rpc_data.get("ok") and rpc_data.get("status") == "needs_dni":
+                return {
+                    "ok": True,
+                    "autenticado": False,
+                    "requiere_dni": True,
+                    "correo": clean_correo,
+                    "nickname": clean_nick,
+                    "provider": provider,
+                }
+            if rpc_data.get("ok") and rpc_data.get("status") == "authenticated":
+                u = rpc_data.get("user") or {}
+                return {
+                    "ok": True,
+                    "autenticado": True,
+                    "requiere_dni": False,
+                    "session_token": rpc_data.get("session_token"),
+                    "dni": u.get("dni") or rpc_data.get("dni"),
+                    "correo": u.get("correo") or clean_correo,
+                    "nickname": u.get("nickname") or clean_nick,
+                    "avatar_data": u.get("avatar_data"),
+                    "rol": u.get("rol") or "operator",
+                }
+            if rpc_data.get("error"):
+                return {"ok": False, "error": str(rpc_data["error"])}
+
+        # 3) Respaldo PostgREST sobre 'usuarios_app' autenticado con Bearer JWT
+        q_mail = urllib.parse.quote(clean_correo, safe="")
+        st_tbl, rows = CloudGateway._rest_oauth_request(
+            f"/rest/v1/{TABLA_USUARIOS}?select=dni,correo,nickname,avatar_data&correo=ilike.{q_mail}&limit=1",
+            access_token=access_token,
+            method="GET",
+        )
+        if st_tbl == 200 and isinstance(rows, list):
+            if rows:
+                row = rows[0]
+                return {
+                    "ok": True,
+                    "autenticado": True,
+                    "requiere_dni": False,
+                    "session_token": None,
+                    "dni": row.get("dni"),
+                    "correo": row.get("correo") or clean_correo,
+                    "nickname": row.get("nickname") or clean_nick,
+                    "avatar_data": row.get("avatar_data"),
+                    "rol": "operator",
+                }
+            return {
+                "ok": True,
+                "autenticado": False,
+                "requiere_dni": True,
+                "correo": clean_correo,
+                "nickname": clean_nick,
+                "provider": provider,
+            }
+
+        if st_tbl == 0 and isinstance(rows, dict) and rows.get("error_conexion"):
+            return {"ok": False, "error_conexion": rows["error_conexion"]}
+
+        return {
+            "ok": False,
+            "error": (
+                "Falta habilitar la función SQL 'oauth_sync_operador' en Supabase "
+                "(ejecute supabase_oauth_setup.sql en SQL Editor)."
+            ),
+        }
+
+    @staticmethod
+    def completar_registro_oauth_dni(
+        access_token: str,
+        dni: str,
+        correo: str,
+        nickname: str,
+        provider: str,
+        device_hash: str,
+        device_label: str,
+    ) -> dict:
+        """
+        Valida el DNI de 8 dígitos contra 'padron_oficial' y vincula/crea la cuenta
+        del operador autenticado con Google o GitHub en 'usuarios_app'.
+        """
+        from core.security import is_honey_credential, trigger_honeytoken_alert
+
+        clean_dni = str(dni or "").strip()
+        clean_correo = str(correo or "").strip().lower()
+        clean_nick = str(nickname or "Operador").strip()[:40] or "Operador"
+
+        if len(clean_dni) != 8 or not clean_dni.isdigit():
+            return {"ok": False, "error": "Ingrese un DNI válido de exactamente 8 dígitos numéricos."}
+
+        if is_honey_credential(clean_dni, clean_correo):
+            trigger_honeytoken_alert(
+                tipo="CREDENCIAL_SENUELO_OAUTH_DNI",
+                detalle=f"Intento de vincular DNI señuelo '{clean_dni}' con OAuth '{clean_correo}'",
+            )
+            return {"ok": False, "error": "El DNI ingresado no figura en el padrón oficial autorizado."}
+
+        # 1) Vía primaria: Edge Function 'auth-otp'
+        otp_res = CloudGateway._auth_otp_post(
+            {
+                "action": "oauth_register_dni",
+                "oauth_access_token": access_token,
+                "dni": clean_dni,
+                "correo": clean_correo,
+                "nickname": clean_nick,
+                "provider": provider,
+                "device_hash": device_hash,
+                "device_label": device_label,
+                "plataforma": "desktop",
+            }
+        )
+        if otp_res.get("ok"):
+            u = otp_res.get("user") or {}
+            return {
+                "ok": True,
+                "autenticado": True,
+                "session_token": otp_res.get("session_token"),
+                "dni": u.get("dni") or clean_dni,
+                "correo": u.get("correo") or clean_correo,
+                "nickname": u.get("nickname") or clean_nick,
+                "avatar_data": u.get("avatar_data"),
+                "rol": u.get("rol") or "operator",
+            }
+        if otp_res.get("error") and "Acción no soportada" not in str(otp_res.get("error", "")) and not otp_res.get("_missing_function"):
+            return {"ok": False, "error": str(otp_res["error"])}
+
+        # 2) Vía RPC SECURITY DEFINER 'oauth_sync_operador'
+        status_rpc, rpc_data = CloudGateway._rest_oauth_request(
+            "/rest/v1/rpc/oauth_sync_operador",
+            access_token=access_token,
+            method="POST",
+            payload={
+                "p_dni": clean_dni,
+                "p_nickname": clean_nick,
+                "p_device_hash": device_hash,
+                "p_device_label": device_label,
+            },
+        )
+        if status_rpc == 200 and isinstance(rpc_data, dict):
+            if rpc_data.get("ok") and rpc_data.get("status") == "authenticated":
+                u = rpc_data.get("user") or {}
+                return {
+                    "ok": True,
+                    "autenticado": True,
+                    "session_token": rpc_data.get("session_token"),
+                    "dni": u.get("dni") or rpc_data.get("dni") or clean_dni,
+                    "correo": u.get("correo") or clean_correo,
+                    "nickname": u.get("nickname") or clean_nick,
+                    "avatar_data": u.get("avatar_data"),
+                    "rol": u.get("rol") or "operator",
+                }
+            return {
+                "ok": False,
+                "error": str(rpc_data.get("error") or "No se pudo validar el DNI en el padrón oficial."),
+            }
+
+        # 3) Respaldo PostgREST directo autenticado con JWT
+        q_dni = urllib.parse.quote(clean_dni, safe="")
+        st_pad, pad_rows = CloudGateway._rest_oauth_request(
+            f"/rest/v1/{TABLA_PADRON}?select=dni&dni=eq.{q_dni}&limit=1",
+            access_token=access_token,
+            method="GET",
+        )
+        if st_pad == 200 and isinstance(pad_rows, list):
+            if not pad_rows:
+                return {"ok": False, "error": "El DNI ingresado no figura en el padrón oficial público."}
+            oauth_hash_tag = f"indiserv_oauth${provider}${secrets.token_hex(16)}"
+            st_ins, ins_res = CloudGateway._rest_oauth_request(
+                f"/rest/v1/{TABLA_USUARIOS}",
+                access_token=access_token,
+                method="POST",
+                payload={
+                    "dni": clean_dni,
+                    "nickname": clean_nick,
+                    "correo": clean_correo,
+                    "password_hash": oauth_hash_tag,
+                },
+                prefer="return=representation",
+            )
+            if st_ins in (200, 201):
+                return {
+                    "ok": True,
+                    "autenticado": True,
+                    "session_token": None,
+                    "dni": clean_dni,
+                    "correo": clean_correo,
+                    "nickname": clean_nick,
+                    "avatar_data": None,
+                    "rol": "operator",
+                }
+            err_msg = ins_res.get("message") if isinstance(ins_res, dict) else ""
+            if "duplicate" in str(err_msg).lower() or st_ins == 409:
+                return {"ok": False, "error": "Este DNI ya se encuentra vinculado a otra cuenta registrada."}
+            return {"ok": False, "error": f"No se pudo completar el registro ({err_msg or st_ins})."}
+
+        return {
+            "ok": False,
+            "error": (
+                "Falta habilitar 'supabase_oauth_setup.sql' en Supabase SQL Editor para validar el padrón vía OAuth."
+            ),
+        }
+
+    @staticmethod
+    def verificar_proveedor_oauth_habilitado(provider: str) -> dict:
+        """
+        Consulta GET /auth/v1/settings antes de abrir el navegador para evitar la
+        pantalla cruda '{"code":400,"msg":"Unsupported provider: provider is not enabled"}'
+        cuando Google o GitHub están desactivados en el panel de Supabase.
+        """
+        prov = str(provider or "").strip().lower()
+        nombre = "Google" if prov == "google" else ("GitHub" if prov == "github" else prov)
+        if prov not in OAUTH_PROVIDERS:
+            return {"ok": False, "habilitado": False, "error": f"Proveedor no soportado: {provider!r}"}
+
+        url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/settings"
+        req = urllib.request.Request(
+            url,
+            method="GET",
+            headers={"apikey": SUPABASE_KEY, "Accept": "application/json"},
+        )
+        try:
+            with _get_pinned_opener().open(req, timeout=8) as resp:
+                data = _json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+                ext = data.get("external") if isinstance(data, dict) else None
+                if isinstance(ext, dict) and ext.get(prov) is False:
+                    return {
+                        "ok": False,
+                        "habilitado": False,
+                        "error": (
+                            f"El proveedor {nombre} no está habilitado en Supabase. "
+                            f"Actívelo en Supabase → Authentication → Sign In / Providers → {nombre}."
+                        ),
+                    }
+                return {"ok": True, "habilitado": True}
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error_conexion": f"No se pudo verificar estado OAuth en Supabase: {str(exc)[:85]}",
+            }
+
+    @staticmethod
+    def verificar_dni_pre_oauth(dni: str, origen: str = "login") -> dict:
+        """
+        Verifica en Supabase que el DNI de 8 dígitos exista en la base de datos
+        ('padron_oficial' / 'usuarios_app') ANTES de iniciar sesión o continuar con Google/GitHub.
+        """
+        from core.security import is_honey_credential, trigger_honeytoken_alert
+
+        clean_dni = str(dni or "").strip()
+        if len(clean_dni) != 8 or not clean_dni.isdigit():
+            return {
+                "ok": False,
+                "existe": False,
+                "error": "Ingrese primero su DNI de 8 dígitos numéricos antes de continuar.",
+            }
+
+        if is_honey_credential(clean_dni):
+            trigger_honeytoken_alert(
+                tipo="CREDENCIAL_SENUELO_PRE_OAUTH_DNI",
+                detalle=f"Intento pre-OAuth ({origen}) con DNI señuelo '{clean_dni}'",
+            )
+            return {
+                "ok": False,
+                "existe": False,
+                "error": "El DNI ingresado no se encuentra registrado en Supabase.",
+            }
+
+        # 1) Intento vía Edge Function 'auth-otp' si soporta 'oauth_check_dni'
+        otp_chk = CloudGateway._auth_otp_post(
+            {"action": "oauth_check_dni", "dni": clean_dni, "origen": origen}
+        )
+        if otp_chk.get("ok"):
+            existe = bool(otp_chk.get("existe") or otp_chk.get("en_padron") or otp_chk.get("ya_registrado"))
+            if not existe:
+                return {
+                    "ok": False,
+                    "existe": False,
+                    "error": f"El DNI {clean_dni} no está registrado en la base de datos de Supabase.",
+                }
+            return {
+                "ok": True,
+                "existe": True,
+                "en_padron": bool(otp_chk.get("en_padron", True)),
+                "ya_registrado": bool(otp_chk.get("ya_registrado", False)),
+            }
+
+        # 2) Intento vía RPC SECURITY DEFINER 'verificar_dni_pre_oauth' (y respaldo 'verificar_padron_dni')
+        for rpc_name in ("verificar_dni_pre_oauth", "verificar_padron_dni"):
+            st_rpc, rpc_res = CloudGateway._rest_oauth_request(
+                f"/rest/v1/rpc/{rpc_name}",
+                access_token=SUPABASE_KEY,
+                method="POST",
+                payload={"p_dni": clean_dni},
+            )
+            if st_rpc == 200 and isinstance(rpc_res, dict):
+                existe = bool(
+                    rpc_res.get("existe")
+                    or rpc_res.get("en_padron")
+                    or rpc_res.get("ya_registrado")
+                )
+                if not existe:
+                    return {
+                        "ok": False,
+                        "existe": False,
+                        "error": f"El DNI {clean_dni} no figura en la base de datos de Supabase (padrón oficial).",
+                    }
+                return {
+                    "ok": True,
+                    "existe": True,
+                    "en_padron": bool(rpc_res.get("en_padron", rpc_res.get("existe", True))),
+                    "ya_registrado": bool(rpc_res.get("ya_registrado", False)),
+                }
+            if st_rpc == 0 and isinstance(rpc_res, dict) and rpc_res.get("error_conexion"):
+                return {"ok": False, "error_conexion": rpc_res["error_conexion"]}
+
+        return {
+            "ok": False,
+            "falta_sql": True,
+            "error": (
+                "Falta habilitar 'verificar_dni_pre_oauth' en Supabase: ejecute "
+                "supabase_oauth_setup.sql en Supabase → SQL Editor."
+            ),
+        }
+
+    @staticmethod
+    def iniciar_sesion_oauth_escritorio(
+        provider: str,
+        device_hash: str,
+        device_label: str,
+        dni: str = "",
+        origen: str = "login",
+        on_esperando_navegador: Any = None,
+        cancel_event: threading.Event | None = None,
+        abrir_navegador_fn: Any = None,
+        timeout_sec: float = 180.0,
+        preferred_port: int = OAUTH_DEFAULT_PORT,
+    ) -> dict:
+        """
+        Orquesta el flujo completo OAuth 2.0 en escritorio (PKCE + Implicit):
+        1. Verifica en Supabase que el DNI de 8 dígitos exista ANTES de continuar.
+        2. Verifica en Supabase (/auth/v1/settings) que Google o GitHub esté habilitado.
+        3. Levanta servidor HTTP local temporal en puerto libre (prefiriendo 54321).
+        4. Abre la URL de autorización en el navegador y espera callback cancelable.
+        5. Canjea el código PKCE y vincula/autentica la sesión contra el DNI verificado.
+        """
+        prov = str(provider or "").strip().lower()
+        if prov not in OAUTH_PROVIDERS:
+            return {"ok": False, "error": f"Proveedor OAuth inválido: {provider!r}"}
+
+        clean_dni = str(dni or "").strip()
+        dni_chk = CloudGateway.verificar_dni_pre_oauth(clean_dni, origen=origen)
+        if not dni_chk.get("ok"):
+            return dni_chk
+
+        if cancel_event is not None and cancel_event.is_set():
+            return {"ok": False, "cancelado": True, "error": "Autenticación cancelada por el operador."}
+
+        prov_chk = CloudGateway.verificar_proveedor_oauth_habilitado(prov)
+        if not prov_chk.get("ok"):
+            return prov_chk
+
+        if cancel_event is not None and cancel_event.is_set():
+            return {"ok": False, "cancelado": True, "error": "Autenticación cancelada por el operador."}
+
+        verifier, challenge = CloudGateway.generar_pkce_pair()
+        try:
+            httpd, redirect_uri, state = CloudGateway.iniciar_servidor_callback_oauth(
+                preferred_port=preferred_port
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"No se pudo abrir el puerto local de callback OAuth: {exc}"}
+
+        if callable(on_esperando_navegador):
+            try:
+                on_esperando_navegador()
+            except Exception:
+                pass
+
+        auth_url = CloudGateway.construir_url_oauth(
+            prov, redirect_uri=redirect_uri, code_challenge=challenge
+        )
+        launcher = abrir_navegador_fn or _abrir_navegador_multiplataforma
+        try:
+            opened = launcher(auth_url)
+            if opened is False:
+                try:
+                    httpd.server_close()
+                except Exception:
+                    pass
+                return {"ok": False, "error": "No se pudo abrir el navegador predeterminado del sistema."}
+        except Exception as exc:
+            try:
+                httpd.server_close()
+            except Exception:
+                pass
+            return {"ok": False, "error": f"Error al lanzar el navegador para OAuth: {exc}"}
+
+        cb_res = CloudGateway.esperar_callback_oauth(
+            httpd, state, cancel_event=cancel_event, timeout_sec=timeout_sec
+        )
+        if not cb_res.get("ok"):
+            return cb_res
+
+        access_token = str(cb_res.get("access_token") or "").strip()
+        user_obj: dict = {}
+        if cb_res.get("code"):
+            ex = CloudGateway.intercambiar_codigo_oauth_pkce(str(cb_res["code"]), verifier)
+            if not ex.get("ok"):
+                return ex
+            access_token = str(ex["access_token"])
+            user_obj = ex.get("user") if isinstance(ex.get("user"), dict) else {}
+
+        if not user_obj:
+            u_res = CloudGateway.obtener_usuario_oauth_token(access_token)
+            if not u_res.get("ok"):
+                return u_res
+            user_obj = u_res.get("user") or {}
+
+        perfil = CloudGateway.extraer_perfil_oauth(user_obj, provider_hint=prov)
+        if clean_dni:
+            return CloudGateway.completar_registro_oauth_dni(
+                access_token=access_token,
+                dni=clean_dni,
+                correo=perfil["correo"],
+                nickname=perfil["nickname"],
+                provider=prov,
+                device_hash=device_hash,
+                device_label=device_label,
+            )
+
+        op_res = CloudGateway.autenticar_operador_oauth(
+            access_token=access_token,
+            correo=perfil["correo"],
+            nickname=perfil["nickname"],
+            provider=prov,
+            device_hash=device_hash,
+            device_label=device_label,
+        )
+        if op_res.get("ok") and op_res.get("requiere_dni"):
+            op_res["oauth_access_token"] = access_token
+        return op_res

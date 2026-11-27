@@ -47,6 +47,11 @@ from core.ui_theme import (
     Badge,
     PuntoPulso,
     boton,
+    boton_oauth,
+    separador_oauth,
+    icono_google,
+    icono_github,
+    estilizar_toplevel,
     tarjeta,
     entrada,
     overline,
@@ -116,6 +121,8 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         self._device_hash, self._device_label = get_device_fingerprint()
         self._session_token: str | None = None
         self._otp_timer_after: str | None = None
+        self._oauth_cancel_event: threading.Event | None = None
+        self._oauth_en_curso: bool = False
         self._avatar_img_refs: dict[str, ctk.CTkImage] = {}
         self._avatar_cache_sig: dict[str, tuple[int, str]] = {}
         self._dashboard_frame: ctk.CTkFrame | None = None
@@ -387,6 +394,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         self._btn_fullscreen.place(relx=0.985, rely=0.022, anchor="ne")
 
     def _al_cerrar_ventana(self):
+        self.cancelar_oauth_activo(silencioso=True)
         if self._stress_actual and self._stress_actual.activo:
             try:
                 self._stress_actual.cancelar()
@@ -399,6 +407,7 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         Elimina vistas transitorias y controla el fondo. Preserva el Dashboard en caché
         (place_forget) para volver en <15 ms, salvo que se pida destruir_dashboard=True.
         """
+        self.cancelar_oauth_activo(silencioso=True)
         if self._stress_actual and self._stress_actual.activo:
             try:
                 self._stress_actual.cancelar()
@@ -519,17 +528,18 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         self._colocar_boton_fullscreen_flotante()
 
         card = ctk.CTkFrame(
-            self, width=440, height=535, corner_radius=0,
+            self, width=444, height=636, corner_radius=0,
             fg_color=P["card"], border_width=1, border_color=P["borde_fuerte"]
         )
         animar_entrada_panel(card)
         card.pack_propagate(False)
+        self._login_card = card
 
         top = ctk.CTkFrame(card, fg_color=P["surface"], corner_radius=12)
-        top.pack(fill="x", padx=18, pady=(18, 10))
+        top.pack(fill="x", padx=18, pady=(14, 8))
 
         fila_brand = ctk.CTkFrame(top, fg_color="transparent")
-        fila_brand.pack(fill="x", padx=14, pady=(12, 2))
+        fila_brand.pack(fill="x", padx=14, pady=(10, 2))
         ctk.CTkLabel(
             fila_brand, text="◈  INDISERV ANALYTICA",
             font=("Segoe UI Semibold", 13), text_color=P["cian"]
@@ -543,23 +553,23 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         ctk.CTkLabel(
             top, text="Autenticación de operador para telemetría y diagnóstico experto.",
             font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
-        ).pack(fill="x", padx=14, pady=(0, 12))
+        ).pack(fill="x", padx=14, pady=(0, 10))
 
         cuerpo = ctk.CTkFrame(card, fg_color="transparent")
-        cuerpo.pack(fill="x", padx=26, pady=4)
+        cuerpo.pack(fill="x", padx=26, pady=2)
 
-        overline(cuerpo, "DNI del Operador").pack(anchor="w", pady=(4, 2))
-        self.entry_dni = entrada(cuerpo, "Ej. 75509123", width=388)
-        self.entry_dni.pack(fill="x", pady=(0, 6))
+        overline(cuerpo, "DNI del Operador").pack(anchor="w", pady=(2, 1))
+        self.entry_dni = entrada(cuerpo, "Ej. 75509123", width=392, height=36)
+        self.entry_dni.pack(fill="x", pady=(0, 4))
 
-        overline(cuerpo, "Correo Corporativo / Institucional").pack(anchor="w", pady=(4, 2))
-        self.entry_correo = entrada(cuerpo, "operador@indiserv.pe", width=388)
-        self.entry_correo.pack(fill="x", pady=(0, 6))
+        overline(cuerpo, "Correo Corporativo / Institucional").pack(anchor="w", pady=(2, 1))
+        self.entry_correo = entrada(cuerpo, "operador@indiserv.pe", width=392, height=36)
+        self.entry_correo.pack(fill="x", pady=(0, 4))
 
-        overline(cuerpo, "Contraseña de Acceso").pack(anchor="w", pady=(4, 2))
+        overline(cuerpo, "Contraseña de Acceso").pack(anchor="w", pady=(2, 1))
         fila_pass = ctk.CTkFrame(cuerpo, fg_color="transparent")
         fila_pass.pack(fill="x")
-        self.entry_pass = entrada(fila_pass, "••••••••", show="*", width=342)
+        self.entry_pass = entrada(fila_pass, "••••••••", show="*", width=342, height=36)
         self.entry_pass.pack(side="left", fill="x", expand=True)
         self._ver_pass = False
 
@@ -568,33 +578,69 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
             self.entry_pass.configure(show="" if self._ver_pass else "*")
             btn_ojo.configure(text="Ocultar" if self._ver_pass else "Ver")
 
-        btn_ojo = boton(fila_pass, "Ver", _toggle_pass, variante="neutro", width=56, height=38, font=F_CAPTION)
+        btn_ojo = boton(fila_pass, "Ver", _toggle_pass, variante="neutro", width=56, height=36, font=F_CAPTION)
         btn_ojo.pack(side="left", padx=(6, 0))
 
         self.entry_pass.bind("<Return>", lambda e: self._iniciar_login_async())
 
         self.lbl_login_error = ctk.CTkLabel(
-            card, text="", text_color=COLOR_ERR, font=F_SMALL, wraplength=380
+            card, text="", text_color=COLOR_ERR, font=F_SMALL, wraplength=390
         )
-        self.lbl_login_error.pack(pady=(6, 2))
+        self.lbl_login_error.pack(pady=(4, 2))
 
         acciones = ctk.CTkFrame(card, fg_color="transparent")
-        acciones.pack(fill="x", padx=26, pady=(4, 8))
+        acciones.pack(fill="x", padx=26, pady=(2, 8))
 
         self.btn_ingresar = boton(
             acciones, "Ingresar a Consola de Operaciones  →",
-            self._iniciar_login_async, variante="primario", width=388, height=40
+            self._iniciar_login_async, variante="primario", width=392, height=38
         )
-        self.btn_ingresar.pack(fill="x", pady=(0, 8))
+        self.btn_ingresar.pack(fill="x", pady=(0, 6))
+
+        self.sep_oauth_login = separador_oauth(acciones, "o ingresa tu DNI y continúa con")
+        self.sep_oauth_login.pack(fill="x", pady=(2, 6))
+
+        self._oauth_box_login = ctk.CTkFrame(acciones, fg_color="transparent")
+        self._oauth_box_login.pack(fill="x", pady=(0, 6))
+
+        self.btn_google_login = boton_oauth(
+            self._oauth_box_login,
+            "google",
+            lambda: self._iniciar_oauth_async("google", origen="login"),
+            texto="  Continuar con Google",
+            width=392,
+            height=35,
+        )
+        self.btn_google_login.pack(fill="x", pady=(0, 5))
+
+        self.btn_github_login = boton_oauth(
+            self._oauth_box_login,
+            "github",
+            lambda: self._iniciar_oauth_async("github", origen="login"),
+            texto="  Continuar con GitHub",
+            width=392,
+            height=35,
+        )
+        self.btn_github_login.pack(fill="x")
+
+        self.btn_cancelar_oauth_login = boton(
+            self._oauth_box_login,
+            "✖ Cancelar espera en navegador",
+            lambda: self.cancelar_oauth_activo(origen="login"),
+            variante="peligro",
+            width=392,
+            height=35,
+            font=F_SMALL,
+        )
 
         boton(
             acciones, "Crear Nueva Cuenta de Operador",
-            self.pantalla_registro, variante="fantasma", width=388, height=34
-        ).pack(fill="x", pady=(0, 6))
+            self.pantalla_registro, variante="fantasma", width=392, height=32
+        ).pack(fill="x", pady=(0, 5))
 
         boton(
             acciones, "🔑 ¿Olvidaste tu contraseña?",
-            self.pantalla_recuperar_password, variante="util", width=388, height=30,
+            self.pantalla_recuperar_password, variante="util", width=392, height=28,
             font=F_CAPTION, hover_border_color=P["ambar"]
         ).pack(fill="x")
 
@@ -1218,43 +1264,44 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         self._colocar_boton_fullscreen_flotante()
 
         frame = ctk.CTkFrame(
-            self, width=460, height=605, corner_radius=0,
+            self, width=460, height=654, corner_radius=0,
             fg_color=P["card"], border_width=1, border_color=P["borde_fuerte"]
         )
         animar_entrada_panel(frame)
         frame.pack_propagate(False)
+        self._registro_card = frame
 
         top = ctk.CTkFrame(frame, fg_color=P["surface"], corner_radius=12)
-        top.pack(fill="x", padx=18, pady=(16, 8))
+        top.pack(fill="x", padx=18, pady=(14, 6))
         ctk.CTkLabel(
             top, text="Registro de Operador Autorizado", font=F_H2, text_color=P["texto"], anchor="w"
-        ).pack(fill="x", padx=14, pady=(10, 2))
+        ).pack(fill="x", padx=14, pady=(9, 2))
         ctk.CTkLabel(
             top, text="Validación contra padrón oficial público UNMSM en Supabase.",
             font=F_CAPTION, text_color=P["texto_sec"], anchor="w"
-        ).pack(fill="x", padx=14, pady=(0, 10))
+        ).pack(fill="x", padx=14, pady=(0, 9))
 
         cuerpo = ctk.CTkFrame(frame, fg_color="transparent")
         cuerpo.pack(fill="x", padx=26)
 
-        overline(cuerpo, "DNI (8 dígitos)").pack(anchor="w", pady=(4, 1))
-        self.reg_dni = entrada(cuerpo, "DNI registrado en el padrón", width=390)
-        self.reg_dni.pack(fill="x", pady=(0, 4))
+        overline(cuerpo, "DNI (8 dígitos)").pack(anchor="w", pady=(2, 1))
+        self.reg_dni = entrada(cuerpo, "DNI registrado en el padrón", width=390, height=34)
+        self.reg_dni.pack(fill="x", pady=(0, 3))
 
-        overline(cuerpo, "Alias / Nickname Técnico").pack(anchor="w", pady=(4, 1))
-        self.reg_nick = entrada(cuerpo, "Ej. op_sistemas", width=390)
-        self.reg_nick.pack(fill="x", pady=(0, 4))
+        overline(cuerpo, "Alias / Nickname Técnico").pack(anchor="w", pady=(2, 1))
+        self.reg_nick = entrada(cuerpo, "Ej. op_sistemas", width=390, height=34)
+        self.reg_nick.pack(fill="x", pady=(0, 3))
 
-        overline(cuerpo, "Correo Electrónico").pack(anchor="w", pady=(4, 1))
-        self.reg_correo = entrada(cuerpo, "correo@dominio.com", width=390)
-        self.reg_correo.pack(fill="x", pady=(0, 4))
+        overline(cuerpo, "Correo Electrónico").pack(anchor="w", pady=(2, 1))
+        self.reg_correo = entrada(cuerpo, "correo@dominio.com", width=390, height=34)
+        self.reg_correo.pack(fill="x", pady=(0, 3))
 
-        overline(cuerpo, "Contraseña").pack(anchor="w", pady=(4, 1))
-        self.reg_pass = entrada(cuerpo, "Contraseña segura", show="*", width=390)
-        self.reg_pass.pack(fill="x", pady=(0, 4))
+        overline(cuerpo, "Contraseña").pack(anchor="w", pady=(2, 1))
+        self.reg_pass = entrada(cuerpo, "Contraseña segura", show="*", width=390, height=34)
+        self.reg_pass.pack(fill="x", pady=(0, 3))
 
         fila_legal_reg = ctk.CTkFrame(cuerpo, fg_color="transparent")
-        fila_legal_reg.pack(fill="x", pady=(8, 2))
+        fila_legal_reg.pack(fill="x", pady=(5, 1))
         self.reg_acepta_terminos = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
             fila_legal_reg,
@@ -1265,21 +1312,62 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
         boton(
             fila_legal_reg, "Leer Política",
             lambda: self.modal_politica_privacidad(var_aceptar=self.reg_acepta_terminos),
-            variante="fantasma", width=96, height=26, font=F_CAPTION
+            variante="fantasma", width=96, height=24, font=F_CAPTION
         ).pack(side="right")
 
         self.lbl_reg_error = ctk.CTkLabel(
             frame, text="", text_color=COLOR_ERR, font=F_SMALL, wraplength=400
         )
-        self.lbl_reg_error.pack(pady=4)
+        self.lbl_reg_error.pack(pady=(3, 2))
 
         acciones = ctk.CTkFrame(frame, fg_color="transparent")
-        acciones.pack(fill="x", padx=26, pady=4)
-        self.btn_registrar = boton(acciones, "Registrar Cuenta en la Nube", self.procesar_registro,
-              variante="primario", width=390, height=38)
-        self.btn_registrar.pack(fill="x", pady=(0, 6))
-        boton(acciones, "← Volver al Login", self.pantalla_login,
-              variante="fantasma", width=390, height=34).pack(fill="x")
+        acciones.pack(fill="x", padx=26, pady=2)
+        self.btn_registrar = boton(
+            acciones, "Registrar Cuenta en la Nube", self.procesar_registro,
+            variante="primario", width=390, height=36
+        )
+        self.btn_registrar.pack(fill="x", pady=(0, 5))
+
+        self.sep_oauth_registro = separador_oauth(acciones, "o ingresa tu DNI y continúa con")
+        self.sep_oauth_registro.pack(fill="x", pady=(1, 5))
+
+        self._oauth_box_registro = ctk.CTkFrame(acciones, fg_color="transparent")
+        self._oauth_box_registro.pack(fill="x", pady=(0, 5))
+
+        self.btn_google_registro = boton_oauth(
+            self._oauth_box_registro,
+            "google",
+            lambda: self._iniciar_oauth_async("google", origen="registro"),
+            texto="  Continuar con Google",
+            width=390,
+            height=34,
+        )
+        self.btn_google_registro.pack(fill="x", pady=(0, 5))
+
+        self.btn_github_registro = boton_oauth(
+            self._oauth_box_registro,
+            "github",
+            lambda: self._iniciar_oauth_async("github", origen="registro"),
+            texto="  Continuar con GitHub",
+            width=390,
+            height=34,
+        )
+        self.btn_github_registro.pack(fill="x")
+
+        self.btn_cancelar_oauth_registro = boton(
+            self._oauth_box_registro,
+            "✖ Cancelar espera en navegador",
+            lambda: self.cancelar_oauth_activo(origen="registro"),
+            variante="peligro",
+            width=390,
+            height=34,
+            font=F_SMALL,
+        )
+
+        boton(
+            acciones, "← Volver al Login", self.pantalla_login,
+            variante="fantasma", width=390, height=30
+        ).pack(fill="x")
 
     def procesar_registro(self):
         dni      = self.reg_dni.get().strip()
@@ -1340,6 +1428,373 @@ class AppIndiServ(DashboardMixin, DiagnosticoMixin, StressYArbolMixin, ModalesMi
             self._post_ui(_apply_reg)
 
         threading.Thread(target=_bg_reg, daemon=True).start()
+
+    # =========================================================================
+    # FLUJO UI DE AUTENTICACIÓN SOCIAL OAUTH (GOOGLE / GITHUB) + MODAL DNI
+    # =========================================================================
+
+    def _widgets_oauth_por_origen(self, origen: str) -> tuple:
+        """Devuelve (btn_google, btn_github, btn_cancelar, lbl_error) según la vista activa."""
+        if origen == "registro":
+            return (
+                getattr(self, "btn_google_registro", None),
+                getattr(self, "btn_github_registro", None),
+                getattr(self, "btn_cancelar_oauth_registro", None),
+                getattr(self, "lbl_reg_error", None),
+            )
+        return (
+            getattr(self, "btn_google_login", None),
+            getattr(self, "btn_github_login", None),
+            getattr(self, "btn_cancelar_oauth_login", None),
+            getattr(self, "lbl_login_error", None),
+        )
+
+    def _restaurar_botones_oauth(self, origen: str = "login") -> None:
+        """Restaura el texto, estado e iconos de ambos botones OAuth tras finalizar o cancelar."""
+        btn_g, btn_gh, btn_cancel, _ = self._widgets_oauth_por_origen(origen)
+        pad_y = (0, 5)
+        try:
+            if btn_cancel is not None and btn_cancel.winfo_exists():
+                btn_cancel.pack_forget()
+        except Exception:
+            pass
+        try:
+            if btn_g is not None and btn_g.winfo_exists():
+                btn_g.pack_forget()
+                btn_g.configure(state="normal", text="  Continuar con Google")
+                btn_g.pack(fill="x", pady=pad_y)
+        except Exception:
+            pass
+        try:
+            if btn_gh is not None and btn_gh.winfo_exists():
+                btn_gh.pack_forget()
+                btn_gh.configure(state="normal", text="  Continuar con GitHub")
+                btn_gh.pack(fill="x")
+        except Exception:
+            pass
+
+    def cancelar_oauth_activo(self, origen: str = "login", silencioso: bool = False) -> None:
+        """Cancela inmediatamente la espera local de callback OAuth y restaura la interfaz."""
+        ev = getattr(self, "_oauth_cancel_event", None)
+        estaba_activo = bool(getattr(self, "_oauth_en_curso", False))
+        if ev is not None:
+            ev.set()
+        self._oauth_en_curso = False
+        self._oauth_cancel_event = None
+        self._restaurar_botones_oauth("login")
+        self._restaurar_botones_oauth("registro")
+        if estaba_activo and not silencioso:
+            _, _, _, lbl_err = self._widgets_oauth_por_origen(origen)
+            if lbl_err is not None and lbl_err.winfo_exists():
+                lbl_err.configure(
+                    text="ℹ Autorización en navegador cancelada.", text_color=P["texto_sec"]
+                )
+
+    def _iniciar_oauth_async(self, provider: str, origen: str = "login") -> None:
+        """
+        Exige y pre-valida el DNI de 8 dígitos contra Supabase antes de lanzar
+        el flujo OAuth PKCE/Implicit de Google o GitHub en el navegador.
+        """
+        prov = str(provider or "").strip().lower()
+        if prov not in ("google", "github"):
+            return
+
+        btn_g, btn_gh, btn_cancel, lbl_err = self._widgets_oauth_por_origen(origen)
+        ent_dni = (
+            getattr(self, "reg_dni", None)
+            if origen == "registro"
+            else getattr(self, "entry_dni", None)
+        )
+        dni_ingresado = (
+            ent_dni.get().strip() if (ent_dni is not None and ent_dni.winfo_exists()) else ""
+        )
+
+        if len(dni_ingresado) != 8 or not dni_ingresado.isdigit():
+            if ent_dni is not None and ent_dni.winfo_exists():
+                try:
+                    ent_dni.configure(border_color=P["ambar"])
+                    ent_dni.focus_set()
+                except Exception:
+                    pass
+            if lbl_err is not None and lbl_err.winfo_exists():
+                lbl_err.configure(
+                    text="⚠ Ingrese primero su DNI de 8 dígitos arriba para verificarlo en Supabase.",
+                    text_color=P["ambar"],
+                )
+            return
+
+        if is_honey_credential(dni_ingresado):
+            trigger_honeytoken_alert(
+                tipo="CREDENCIAL_SENUELO_PRE_OAUTH_UI",
+                detalle=f"Intento OAuth ({prov}/{origen}) con DNI señuelo '{dni_ingresado}'",
+            )
+            if lbl_err is not None and lbl_err.winfo_exists():
+                lbl_err.configure(
+                    text="✖ El DNI ingresado no se encuentra registrado en Supabase.",
+                    text_color=COLOR_ERR,
+                )
+            return
+
+        permitido, espera_s = check_login_rate_limit()
+        if not permitido:
+            if lbl_err is not None and lbl_err.winfo_exists():
+                lbl_err.configure(
+                    text=f"⏳ Demasiados intentos fallidos. Intente nuevamente en {espera_s} s.",
+                    text_color=COLOR_ERR,
+                )
+            return
+
+        self.cancelar_oauth_activo(silencioso=True)
+        cancel_ev = threading.Event()
+        self._oauth_cancel_event = cancel_ev
+        self._oauth_en_curso = True
+
+        if lbl_err is not None and lbl_err.winfo_exists():
+            lbl_err.configure(text="")
+
+        btn_activo = btn_g if prov == "google" else btn_gh
+        btn_otro = btn_gh if prov == "google" else btn_g
+
+        try:
+            if btn_otro is not None and btn_otro.winfo_exists():
+                btn_otro.pack_forget()
+            if btn_activo is not None and btn_activo.winfo_exists():
+                btn_activo.pack_forget()
+                btn_activo.configure(
+                    state="disabled", text="  Verificando DNI en Supabase..."
+                )
+                btn_activo.pack(fill="x", pady=(0, 5))
+            if btn_cancel is not None and btn_cancel.winfo_exists():
+                btn_cancel.pack(fill="x")
+        except Exception:
+            pass
+
+        def _marcar_esperando_nav():
+            def _ui_wait():
+                if cancel_ev.is_set() or not self.winfo_exists():
+                    return
+                try:
+                    if btn_activo is not None and btn_activo.winfo_exists():
+                        btn_activo.configure(
+                            state="disabled", text="  Esperando autorización en el navegador..."
+                        )
+                except Exception:
+                    pass
+
+            self._post_ui(_ui_wait)
+
+        def _bg_oauth():
+            res = CloudGateway.iniciar_sesion_oauth_escritorio(
+                provider=prov,
+                device_hash=self._device_hash,
+                device_label=self._device_label,
+                dni=dni_ingresado,
+                origen=origen,
+                on_esperando_navegador=_marcar_esperando_nav,
+                cancel_event=cancel_ev,
+            )
+
+            def _apply_oauth():
+                if cancel_ev.is_set() or not self.winfo_exists():
+                    return
+                self._oauth_en_curso = False
+                self._oauth_cancel_event = None
+                self._restaurar_botones_oauth(origen)
+
+                if res.get("cancelado"):
+                    return
+
+                if res.get("ok") and res.get("autenticado"):
+                    reset_login_rate_limit()
+                    if res.get("session_token"):
+                        self._session_token = str(res["session_token"])
+                        save_session_token(self._session_token, self._device_hash)
+                    self.dni_usuario_activo = str(res.get("dni") or dni_ingresado).strip()
+                    self.usuario_activo_info = {
+                        "dni": self.dni_usuario_activo,
+                        "correo": res.get("correo") or "",
+                        "nickname": res.get("nickname") or "Operador",
+                        "avatar_data": res.get("avatar_data"),
+                        "rol": res.get("rol") or "operator",
+                    }
+                    self._mostrar_splash_carga()
+                    return
+
+                if res.get("ok") and res.get("requiere_dni"):
+                    reset_login_rate_limit()
+                    self.modal_completar_dni_oauth(res)
+                    return
+
+                _, _, _, lbl = self._widgets_oauth_por_origen(origen)
+                if lbl is not None and lbl.winfo_exists():
+                    msg = res.get("error") or res.get("error_conexion") or "No se pudo completar OAuth."
+                    es_aviso_cfg = bool(res.get("habilitado") is False or res.get("falta_sql"))
+                    lbl.configure(
+                        text=f"{'⚠' if es_aviso_cfg else '✖'} {msg}",
+                        text_color=P["ambar"] if es_aviso_cfg else COLOR_ERR,
+                    )
+
+            self._post_ui(_apply_oauth)
+
+        threading.Thread(target=_bg_oauth, daemon=True).start()
+
+    def modal_completar_dni_oauth(self, datos_oauth: dict) -> ctk.CTkToplevel:
+        """
+        Ventana emergente estilizada (estilizar_toplevel) para usuarios que ingresan por
+        primera vez con Google o GitHub y aún no tienen DNI validado contra el padrón.
+        """
+        prov = str(datos_oauth.get("provider") or "google").strip().lower()
+        correo = str(datos_oauth.get("correo") or "").strip()
+        nickname = str(datos_oauth.get("nickname") or "Operador").strip()
+        oauth_token = str(datos_oauth.get("oauth_access_token") or "").strip()
+        nombre_prov = "Google" if prov == "google" else "GitHub"
+
+        win = ctk.CTkToplevel(self)
+        estilizar_toplevel(
+            win, self, f"Completar Registro con {nombre_prov} — Padrón Oficial", 456, 385, modal=True
+        )
+
+        card = tarjeta(win, border_color=P["borde_fuerte"])
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+
+        top = ctk.CTkFrame(card, fg_color=P["surface"], corner_radius=10)
+        top.pack(fill="x", padx=16, pady=(14, 10))
+
+        fila_hdr = ctk.CTkFrame(top, fg_color="transparent")
+        fila_hdr.pack(fill="x", padx=12, pady=(10, 4))
+        ico = icono_google(18) if prov == "google" else icono_github(18)
+        lbl_ico = ctk.CTkLabel(fila_hdr, text="", image=ico)
+        lbl_ico._oauth_icon_ref = ico
+        lbl_ico.pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(
+            fila_hdr, text="Validación de Operador Nuevo", font=F_H2, text_color=P["texto"]
+        ).pack(side="left")
+        Badge(fila_hdr, f"{nombre_prov} OAuth", tipo="info").pack(side="right")
+
+        ctk.CTkLabel(
+            top,
+            text=f"Cuenta verificada: {nickname}  ·  {correo}",
+            font=F_CAPTION,
+            text_color=P["cian"],
+            anchor="w",
+            wraplength=390,
+            justify="left",
+        ).pack(fill="x", padx=12, pady=(0, 10))
+
+        cuerpo = ctk.CTkFrame(card, fg_color="transparent")
+        cuerpo.pack(fill="x", padx=20, pady=4)
+
+        ctk.CTkLabel(
+            cuerpo,
+            text="Ingrese su DNI de 8 dígitos para validar su identidad contra el padrón oficial en Supabase y completar su registro:",
+            font=F_SMALL,
+            text_color=P["texto_sec"],
+            anchor="w",
+            justify="left",
+            wraplength=395,
+        ).pack(fill="x", pady=(2, 10))
+
+        overline(cuerpo, "DNI del Operador (8 dígitos)").pack(anchor="w", pady=(0, 3))
+        ent_dni = entrada(cuerpo, "Ej. 75509123", width=395)
+        ent_dni.pack(fill="x", pady=(0, 6))
+        ent_dni.focus_set()
+        win.entry_dni_oauth = ent_dni
+
+        lbl_err = ctk.CTkLabel(
+            card, text="", text_color=COLOR_ERR, font=F_SMALL, wraplength=395
+        )
+        lbl_err.pack(pady=(2, 4))
+        win.lbl_error_oauth = lbl_err
+
+        state = {"busy": False}
+
+        def _confirmar_dni():
+            if state["busy"]:
+                return
+            dni_val = ent_dni.get().strip()
+            if len(dni_val) != 8 or not dni_val.isdigit():
+                lbl_err.configure(text="⚠ Ingrese exactamente 8 dígitos numéricos para el DNI.")
+                return
+
+            state["busy"] = True
+            btn_ok.configure(state="disabled", text="Validando DNI en padrón oficial…")
+            lbl_err.configure(text="")
+
+            def _bg_completar():
+                res = CloudGateway.completar_registro_oauth_dni(
+                    access_token=oauth_token,
+                    dni=dni_val,
+                    correo=correo,
+                    nickname=nickname,
+                    provider=prov,
+                    device_hash=self._device_hash,
+                    device_label=self._device_label,
+                )
+
+                def _apply_completar():
+                    state["busy"] = False
+                    if not win.winfo_exists():
+                        return
+                    if res.get("ok") and res.get("autenticado"):
+                        try:
+                            win.grab_release()
+                        except Exception:
+                            pass
+                        win.destroy()
+                        if res.get("session_token"):
+                            self._session_token = str(res["session_token"])
+                            save_session_token(self._session_token, self._device_hash)
+                        self.dni_usuario_activo = str(res.get("dni") or dni_val).strip()
+                        self.usuario_activo_info = {
+                            "dni": self.dni_usuario_activo,
+                            "correo": res.get("correo") or correo,
+                            "nickname": res.get("nickname") or nickname,
+                            "avatar_data": res.get("avatar_data"),
+                            "rol": res.get("rol") or "operator",
+                        }
+                        self._mostrar_splash_carga()
+                        toast(
+                            self,
+                            f"DNI {self.dni_usuario_activo} validado. Cuenta {nombre_prov} vinculada.",
+                            tipo="ok",
+                        )
+                    else:
+                        btn_ok.configure(state="normal", text="Validar DNI y Completar Acceso  →")
+                        lbl_err.configure(
+                            text=f"✖ {res.get('error') or res.get('error_conexion') or 'DNI no válido en padrón.'}"
+                        )
+
+                self._post_ui(_apply_completar)
+
+            threading.Thread(target=_bg_completar, daemon=True).start()
+
+        acciones = ctk.CTkFrame(card, fg_color="transparent")
+        acciones.pack(fill="x", padx=20, pady=(4, 12))
+
+        btn_ok = boton(
+            acciones,
+            "Validar DNI y Completar Acceso  →",
+            _confirmar_dni,
+            variante="primario",
+            width=395,
+            height=38,
+        )
+        btn_ok.pack(fill="x", pady=(0, 6))
+        win.btn_confirmar_dni = btn_ok
+
+        boton(
+            acciones,
+            "Cancelar",
+            win.destroy,
+            variante="fantasma",
+            width=395,
+            height=32,
+            font=F_SMALL,
+        ).pack(fill="x")
+
+        ent_dni.bind("<Return>", lambda _e: _confirmar_dni())
+        return win
 
 
 

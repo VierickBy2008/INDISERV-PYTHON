@@ -15,6 +15,7 @@ import tkinter as tk
 from typing import Callable
 
 import customtkinter as ctk
+from PIL import Image, ImageDraw
 
 FRAME_MS: int = 16
 
@@ -239,6 +240,184 @@ def boton(parent, texto: str, comando: Callable | None = None,
     if tiene_borde:
         _adjuntar_hover_borde_60fps(btn, borde_base, hover_borde)
 
+    return btn
+
+
+_OAUTH_PIL_CACHE: dict[tuple[str, int], Image.Image] = {}
+
+
+def _dibujar_pil_google(size: int = 18) -> Image.Image:
+    """Renderiza programáticamente la 'G' multicolor oficial de Google con supersampling 6x."""
+    px = max(12, int(size))
+    key = ("google", px)
+    if key in _OAUTH_PIL_CACHE:
+        return _OAUTH_PIL_CACHE[key]
+
+    s = max(128, px * 6)
+    cx = cy = s / 2.0
+    r_out = s * 0.44
+    r_in = s * 0.255
+    bbox_out = (cx - r_out, cy - r_out, cx + r_out, cy + r_out)
+    bbox_in = (cx - r_in, cy - r_in, cx + r_in, cy + r_in)
+
+    azul = (66, 133, 244, 255)      # #4285F4
+    verde = (52, 168, 83, 255)      # #34A853
+    amarillo = (251, 188, 5, 255)   # #FBBC05
+    rojo = (234, 67, 53, 255)       # #EA4335
+
+    lienzo = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(lienzo)
+
+    # Cuadrantes oficiales en grados horarios (0° = derecha, 90° = abajo, 180° = izq., 270° = arriba)
+    draw.pieslice(bbox_out, 214, 318, fill=rojo)
+    draw.pieslice(bbox_out, 146, 214, fill=amarillo)
+    draw.pieslice(bbox_out, 50, 146, fill=verde)
+    draw.pieslice(bbox_out, -13, 50, fill=azul)
+
+    # Vaciar centro para formar el anillo de la "G"
+    draw.ellipse(bbox_in, fill=(0, 0, 0, 0))
+
+    # Travesaño horizontal azul recortado exactamente a la circunferencia exterior
+    barra_layer = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    d_bar = ImageDraw.Draw(barra_layer)
+    bar_top = cy - s * 0.088
+    bar_bot = cy + s * 0.088
+    d_bar.rectangle((cx - s * 0.01, bar_top, cx + r_out, bar_bot), fill=azul)
+
+    mask_circ = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask_circ).ellipse(bbox_out, fill=255)
+    barra_recortada = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    barra_recortada.paste(barra_layer, (0, 0), mask_circ)
+
+    lienzo = Image.alpha_composite(lienzo, barra_recortada)
+    img_final = lienzo.resize((px * 2, px * 2), Image.Resampling.LANCZOS)
+    _OAUTH_PIL_CACHE[key] = img_final
+    return img_final
+
+
+def _dibujar_pil_github(size: int = 18) -> Image.Image:
+    """Renderiza programáticamente la silueta blanca oficial de GitHub (Invertocat) a alta nitidez."""
+    px = max(12, int(size))
+    key = ("github", px)
+    if key in _OAUTH_PIL_CACHE:
+        return _OAUTH_PIL_CACHE[key]
+
+    s = max(128, px * 6)
+    blanco = (255, 255, 255, 255)
+    transparente = (0, 0, 0, 0)
+
+    lienzo = Image.new("RGBA", (s, s), transparente)
+    draw = ImageDraw.Draw(lienzo)
+
+    # Disco exterior blanco oficial de GitHub
+    pad = s * 0.055
+    draw.ellipse((pad, pad, s - pad, s - pad), fill=blanco)
+
+    # Recorte negativo de alta precisión (cabeza Octocat, orejas felinas, torso y cola curva)
+    draw.ellipse((s * 0.235, s * 0.285, s * 0.765, s * 0.685), fill=transparente)
+
+    # Orejas puntiagudas izquierda y derecha
+    draw.polygon(
+        [(s * 0.255, s * 0.39), (s * 0.235, s * 0.185), (s * 0.405, s * 0.295)],
+        fill=transparente,
+    )
+    draw.polygon(
+        [(s * 0.745, s * 0.39), (s * 0.765, s * 0.185), (s * 0.595, s * 0.295)],
+        fill=transparente,
+    )
+
+    # Cuello y hombros abriendo la base inferior del medallón
+    draw.rounded_rectangle(
+        (s * 0.375, s * 0.635, s * 0.625, s * 0.98),
+        radius=int(s * 0.08),
+        fill=transparente,
+    )
+
+    # Cola curva característica a la izquierda del torso
+    draw.arc(
+        (s * 0.17, s * 0.60, s * 0.43, s * 0.84),
+        start=30,
+        end=195,
+        fill=transparente,
+        width=max(4, int(s * 0.068)),
+    )
+
+    img_final = lienzo.resize((px * 2, px * 2), Image.Resampling.LANCZOS)
+    _OAUTH_PIL_CACHE[key] = img_final
+    return img_final
+
+
+def icono_google(size: int = 18) -> ctk.CTkImage:
+    """Devuelve un CTkImage de alta densidad (2x) con el logo multicolor de Google."""
+    px = max(12, int(size))
+    img = _dibujar_pil_google(px)
+    return ctk.CTkImage(light_image=img, dark_image=img, size=(px, px))
+
+
+def icono_github(size: int = 18) -> ctk.CTkImage:
+    """Devuelve un CTkImage de alta densidad (2x) con la silueta blanca oficial de GitHub."""
+    px = max(12, int(size))
+    img = _dibujar_pil_github(px)
+    return ctk.CTkImage(light_image=img, dark_image=img, size=(px, px))
+
+
+def separador_oauth(parent, texto: str = "o continúa con") -> ctk.CTkFrame:
+    """Separador horizontal sutil con líneas laterales para dividir login clásico y social."""
+    fila = ctk.CTkFrame(parent, fg_color="transparent")
+    fila.grid_columnconfigure(0, weight=1)
+    fila.grid_columnconfigure(2, weight=1)
+
+    lin_izq = ctk.CTkFrame(fila, height=1, fg_color=P["borde_fuerte"], corner_radius=0)
+    lin_izq.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+
+    ctk.CTkLabel(
+        fila, text=texto, font=F_CAPTION, text_color=P["texto_dim"]
+    ).grid(row=0, column=1)
+
+    lin_der = ctk.CTkFrame(fila, height=1, fg_color=P["borde_fuerte"], corner_radius=0)
+    lin_der.grid(row=0, column=2, sticky="ew", padx=(10, 0))
+    return fila
+
+
+def boton_oauth(
+    parent,
+    proveedor: str,
+    comando: Callable | None = None,
+    texto: str | None = None,
+    icon_size: int = 18,
+    **kw,
+) -> ctk.CTkButton:
+    """Botón dark-tech con bordes redondeados e icono oficial (Google / GitHub) a la izquierda."""
+    prov = str(proveedor or "").strip().lower()
+    if prov == "google":
+        icono = icono_google(icon_size)
+        etiqueta_txt = texto or "  Continuar con Google"
+        hover_borde = "#4285f4"
+    elif prov == "github":
+        icono = icono_github(icon_size)
+        etiqueta_txt = texto or "  Continuar con GitHub"
+        hover_borde = "#e2e8f0"
+    else:
+        raise ValueError(f"Proveedor OAuth no soportado: {proveedor!r}")
+
+    opciones = dict(
+        text=etiqueta_txt,
+        image=icono,
+        compound="left",
+        command=comando,
+        fg_color="#121928",
+        hover_color="#1c273d",
+        text_color=P["texto"],
+        border_width=1,
+        border_color=P["borde_fuerte"],
+        corner_radius=9,
+        height=36,
+        font=F_H3,
+    )
+    opciones.update(kw)
+    btn = ctk.CTkButton(parent, **opciones)
+    btn._oauth_icon_ref = icono
+    _adjuntar_hover_borde_60fps(btn, opciones.get("border_color", P["borde_fuerte"]), hover_borde)
     return btn
 
 
